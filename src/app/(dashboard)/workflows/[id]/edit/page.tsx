@@ -2,6 +2,7 @@
 
 // ===========================================
 // Workflow Editor Page - Visual Workflow Builder
+// With Drag & Drop Step Reordering
 // ===========================================
 
 import { useState, useEffect, use, useCallback } from "react";
@@ -24,6 +25,27 @@ import {
   Check,
 } from "lucide-react";
 import { toast } from "sonner";
+
+// Drag and Drop imports
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
@@ -140,6 +162,275 @@ const stepTypes = [
 // Generate unique temp ID
 const generateTempId = () => `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+// Sortable Step Item Component
+interface SortableStepItemProps {
+  step: WorkflowStep;
+  index: number;
+  isSelected: boolean;
+  transitions: Transition[];
+  steps: WorkflowStep[];
+  getStepIcon: (type: string) => React.ComponentType<{ className?: string }>;
+  getStepColor: (type: string) => string;
+  onSelect: () => void;
+  onDelete: () => void;
+  onAddTransition: (fromTempId: string, toTempId: string) => void;
+  onRemoveTransition: (fromTempId: string, toTempId: string) => void;
+  openTransitionPopover: string | null;
+  setOpenTransitionPopover: (id: string | null) => void;
+}
+
+function SortableStepItem({
+  step,
+  index,
+  isSelected,
+  transitions,
+  steps,
+  getStepIcon,
+  getStepColor,
+  onSelect,
+  onDelete,
+  onAddTransition,
+  onRemoveTransition,
+  openTransitionPopover,
+  setOpenTransitionPopover,
+}: SortableStepItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: step.tempId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 1000 : 1,
+  };
+
+  const Icon = getStepIcon(step.stepType);
+  const color = getStepColor(step.stepType);
+  const stepTransitions = transitions.filter((t) => t.fromTempId === step.tempId);
+
+  return (
+    <div ref={setNodeRef} style={style} className="relative">
+      {/* Connector from previous */}
+      {index > 0 && (
+        <div className="absolute left-8 -top-4 h-4 w-0.5 bg-border" />
+      )}
+
+      {/* Step Card */}
+      <div
+        className={cn(
+          "flex items-center gap-4 p-4 rounded-lg border bg-card transition-all",
+          isSelected ? "ring-2 ring-primary" : "hover:bg-muted/50",
+          isDragging && "shadow-lg ring-2 ring-primary/50"
+        )}
+      >
+        {/* Drag Handle */}
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing touch-none"
+        >
+          <GripVertical className="h-5 w-5 text-muted-foreground hover:text-foreground" />
+        </div>
+
+        {/* Step Icon */}
+        <div
+          className={cn(
+            "w-10 h-10 rounded-lg flex items-center justify-center cursor-pointer",
+            step.stepType === "START" && "bg-green-100",
+            step.stepType === "END" && "bg-red-100",
+            step.stepType === "ACTION" && "bg-blue-100",
+            step.stepType === "DECISION" && "bg-amber-100",
+            step.stepType === "NOTIFICATION" && "bg-purple-100",
+            step.stepType === "WAIT" && "bg-gray-100"
+          )}
+          onClick={onSelect}
+        >
+          <Icon className={cn("h-5 w-5", color)} />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={onSelect}>
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{step.name}</span>
+            <Badge variant="outline" className="text-xs">
+              {step.stepType}
+            </Badge>
+            {step.isOptional && (
+              <Badge variant="secondary" className="text-xs">
+                Optional
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Status: {step.statusName}
+            {step.slaHours && ` | SLA: ${step.slaHours}h`}
+          </p>
+        </div>
+
+        {/* Delete Action */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+        >
+          <Trash2 className="h-4 w-4 text-destructive" />
+        </Button>
+      </div>
+
+      {/* Transitions */}
+      {stepTransitions.length > 0 && (
+        <div className="ml-16 mt-2 space-y-1">
+          {stepTransitions.map((t) => {
+            const toStep = steps.find((s) => s.tempId === t.toTempId);
+            return (
+              <div
+                key={`${t.fromTempId}-${t.toTempId}`}
+                className="flex items-center gap-2 text-sm text-muted-foreground"
+              >
+                <ChevronRight className="h-4 w-4" />
+                <span>
+                  {t.transitionName || "Next"} →{" "}
+                  <span className="font-medium">{toStep?.name || "Unknown"}</span>
+                </span>
+                <Badge variant="outline" className="text-xs">
+                  {t.conditionType}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => onRemoveTransition(t.fromTempId, t.toTempId)}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add Transition Button */}
+      {step.stepType !== "END" && (
+        <div className="ml-16 mt-2">
+          {(() => {
+            const availableSteps = steps.filter(
+              (s) =>
+                s.tempId !== step.tempId &&
+                !transitions.some(
+                  (t) => t.fromTempId === step.tempId && t.toTempId === s.tempId
+                )
+            );
+
+            if (availableSteps.length === 0) {
+              return (
+                <span className="text-xs text-muted-foreground italic">
+                  No more steps available to connect
+                </span>
+              );
+            }
+
+            return (
+              <Popover
+                open={openTransitionPopover === step.tempId}
+                onOpenChange={(open) =>
+                  setOpenTransitionPopover(open ? step.tempId : null)
+                }
+              >
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
+                    <Plus className="h-3 w-3" />
+                    Add transition...
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[220px] p-2" align="start">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground px-2 pb-1">
+                      Select target step
+                    </p>
+                    {availableSteps.map((s) => {
+                      const StepIcon = getStepIcon(s.stepType);
+                      return (
+                        <Button
+                          key={s.tempId}
+                          variant="ghost"
+                          className="w-full justify-start h-9 text-sm font-normal"
+                          onClick={() => {
+                            onAddTransition(step.tempId, s.tempId);
+                            setOpenTransitionPopover(null);
+                          }}
+                        >
+                          <StepIcon
+                            className={cn("h-4 w-4 mr-2", getStepColor(s.stepType))}
+                          />
+                          {s.name}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Connector to next */}
+      {index < steps.length - 1 && (
+        <div className="absolute left-8 -bottom-4 h-4 w-0.5 bg-border" />
+      )}
+    </div>
+  );
+}
+
+// Drag Overlay Step Component (shown while dragging)
+interface DragOverlayStepProps {
+  step: WorkflowStep;
+  getStepIcon: (type: string) => React.ComponentType<{ className?: string }>;
+  getStepColor: (type: string) => string;
+}
+
+function DragOverlayStep({ step, getStepIcon, getStepColor }: DragOverlayStepProps) {
+  const Icon = getStepIcon(step.stepType);
+  const color = getStepColor(step.stepType);
+
+  return (
+    <div className="flex items-center gap-4 p-4 rounded-lg border bg-card shadow-xl ring-2 ring-primary">
+      <GripVertical className="h-5 w-5 text-muted-foreground" />
+      <div
+        className={cn(
+          "w-10 h-10 rounded-lg flex items-center justify-center",
+          step.stepType === "START" && "bg-green-100",
+          step.stepType === "END" && "bg-red-100",
+          step.stepType === "ACTION" && "bg-blue-100",
+          step.stepType === "DECISION" && "bg-amber-100",
+          step.stepType === "NOTIFICATION" && "bg-purple-100",
+          step.stepType === "WAIT" && "bg-gray-100"
+        )}
+      >
+        <Icon className={cn("h-5 w-5", color)} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{step.name}</span>
+          <Badge variant="outline" className="text-xs">
+            {step.stepType}
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">Status: {step.statusName}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkflowEditPage({
   params,
 }: {
@@ -166,6 +457,48 @@ export default function WorkflowEditPage({
   const [deleteStepId, setDeleteStepId] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [openTransitionPopover, setOpenTransitionPopover] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  // DnD sensors configuration
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px movement before starting drag
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag start
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  // Handle drag end - reorder steps
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (over && active.id !== over.id) {
+      const oldIndex = steps.findIndex((s) => s.tempId === active.id);
+      const newIndex = steps.findIndex((s) => s.tempId === over.id);
+
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newSteps = arrayMove(steps, oldIndex, newIndex);
+        // Update step order based on new position
+        newSteps.forEach((step, index) => {
+          step.stepOrder = index;
+        });
+        setSteps(newSteps);
+        toast.success("Step order updated");
+      }
+    }
+  };
+
+  // Get dragged step for overlay
+  const activeStep = activeId ? steps.find((s) => s.tempId === activeId) : null;
 
   // Fetch workflow and reference data
   useEffect(() => {
@@ -550,223 +883,54 @@ export default function WorkflowEditPage({
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {steps
-                    .sort((a, b) => a.stepOrder - b.stepOrder)
-                    .map((step, index) => {
-                      const Icon = getStepIcon(step.stepType);
-                      const color = getStepColor(step.stepType);
-                      const stepTransitions = transitions.filter(
-                        (t) => t.fromTempId === step.tempId
-                      );
-
-                      return (
-                        <div key={step.tempId} className="relative">
-                          {/* Connector from previous */}
-                          {index > 0 && (
-                            <div className="absolute left-8 -top-4 h-4 w-0.5 bg-border" />
-                          )}
-
-                          {/* Step Card */}
-                          <div
-                            className={cn(
-                              "flex items-center gap-4 p-4 rounded-lg border bg-card cursor-pointer transition-all",
-                              selectedStep?.tempId === step.tempId
-                                ? "ring-2 ring-primary"
-                                : "hover:bg-muted/50"
-                            )}
-                            onClick={() => {
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={steps.sort((a, b) => a.stepOrder - b.stepOrder).map((s) => s.tempId)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-4">
+                      {steps
+                        .sort((a, b) => a.stepOrder - b.stepOrder)
+                        .map((step, index) => (
+                          <SortableStepItem
+                            key={step.tempId}
+                            step={step}
+                            index={index}
+                            isSelected={selectedStep?.tempId === step.tempId}
+                            transitions={transitions}
+                            steps={steps}
+                            getStepIcon={getStepIcon}
+                            getStepColor={getStepColor}
+                            onSelect={() => {
                               setSelectedStep(step);
                               setShowStepSheet(true);
                             }}
-                          >
-                            {/* Drag Handle & Icon */}
-                            <div className="flex items-center gap-2">
-                              <GripVertical className="h-4 w-4 text-muted-foreground" />
-                              <div
-                                className={cn(
-                                  "w-10 h-10 rounded-lg flex items-center justify-center",
-                                  step.stepType === "START" && "bg-green-100",
-                                  step.stepType === "END" && "bg-red-100",
-                                  step.stepType === "ACTION" && "bg-blue-100",
-                                  step.stepType === "DECISION" && "bg-amber-100",
-                                  step.stepType === "NOTIFICATION" && "bg-purple-100",
-                                  step.stepType === "WAIT" && "bg-gray-100"
-                                )}
-                              >
-                                <Icon className={cn("h-5 w-5", color)} />
-                              </div>
-                            </div>
+                            onDelete={() => setDeleteStepId(step.tempId)}
+                            onAddTransition={handleAddTransition}
+                            onRemoveTransition={handleRemoveTransition}
+                            openTransitionPopover={openTransitionPopover}
+                            setOpenTransitionPopover={setOpenTransitionPopover}
+                          />
+                        ))}
+                    </div>
+                  </SortableContext>
 
-                            {/* Content */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">{step.name}</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {step.stepType}
-                                </Badge>
-                                {step.isOptional && (
-                                  <Badge variant="secondary" className="text-xs">
-                                    Optional
-                                  </Badge>
-                                )}
-                              </div>
-                              <p className="text-sm text-muted-foreground">
-                                Status: {step.statusName}
-                                {step.slaHours && ` | SLA: ${step.slaHours}h`}
-                              </p>
-                            </div>
-
-                            {/* Actions */}
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMoveStep(index, "up");
-                                }}
-                                disabled={index === 0}
-                              >
-                                <ChevronRight className="h-4 w-4 -rotate-90" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMoveStep(index, "down");
-                                }}
-                                disabled={index === steps.length - 1}
-                              >
-                                <ChevronRight className="h-4 w-4 rotate-90" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDeleteStepId(step.tempId);
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          </div>
-
-                          {/* Transitions */}
-                          {stepTransitions.length > 0 && (
-                            <div className="ml-16 mt-2 space-y-1">
-                              {stepTransitions.map((t) => {
-                                const toStep = steps.find(
-                                  (s) => s.tempId === t.toTempId
-                                );
-                                return (
-                                  <div
-                                    key={`${t.fromTempId}-${t.toTempId}`}
-                                    className="flex items-center gap-2 text-sm text-muted-foreground"
-                                  >
-                                    <ChevronRight className="h-4 w-4" />
-                                    <span>
-                                      {t.transitionName || "Next"} →{" "}
-                                      <span className="font-medium">
-                                        {toStep?.name || "Unknown"}
-                                      </span>
-                                    </span>
-                                    <Badge variant="outline" className="text-xs">
-                                      {t.conditionType}
-                                    </Badge>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={() =>
-                                        handleRemoveTransition(t.fromTempId, t.toTempId)
-                                      }
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {/* Add Transition Button */}
-                          {step.stepType !== "END" && (
-                            <div className="ml-16 mt-2">
-                              {(() => {
-                                const availableSteps = steps.filter(
-                                  (s) =>
-                                    s.tempId !== step.tempId &&
-                                    !transitions.some(
-                                      (t) =>
-                                        t.fromTempId === step.tempId &&
-                                        t.toTempId === s.tempId
-                                    )
-                                );
-
-                                if (availableSteps.length === 0) {
-                                  return (
-                                    <span className="text-xs text-muted-foreground italic">
-                                      No more steps available to connect
-                                    </span>
-                                  );
-                                }
-
-                                return (
-                                  <Popover
-                                    open={openTransitionPopover === step.tempId}
-                                    onOpenChange={(open) => setOpenTransitionPopover(open ? step.tempId : null)}
-                                  >
-                                    <PopoverTrigger asChild>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 text-xs gap-1"
-                                      >
-                                        <Plus className="h-3 w-3" />
-                                        Add transition...
-                                      </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-[220px] p-2" align="start">
-                                      <div className="space-y-1">
-                                        <p className="text-xs font-medium text-muted-foreground px-2 pb-1">
-                                          Select target step
-                                        </p>
-                                        {availableSteps.map((s) => {
-                                          const StepIcon = getStepIcon(s.stepType);
-                                          return (
-                                            <Button
-                                              key={s.tempId}
-                                              variant="ghost"
-                                              className="w-full justify-start h-9 text-sm font-normal"
-                                              onClick={() => {
-                                                handleAddTransition(step.tempId, s.tempId);
-                                                setOpenTransitionPopover(null);
-                                              }}
-                                            >
-                                              <StepIcon className={cn("h-4 w-4 mr-2", getStepColor(s.stepType))} />
-                                              {s.name}
-                                            </Button>
-                                          );
-                                        })}
-                                      </div>
-                                    </PopoverContent>
-                                  </Popover>
-                                );
-                              })()}
-                            </div>
-                          )}
-
-                          {/* Connector to next */}
-                          {index < steps.length - 1 && (
-                            <div className="absolute left-8 -bottom-4 h-4 w-0.5 bg-border" />
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
+                  {/* Drag Overlay - Shows the step being dragged */}
+                  <DragOverlay>
+                    {activeStep && (
+                      <DragOverlayStep
+                        step={activeStep}
+                        getStepIcon={getStepIcon}
+                        getStepColor={getStepColor}
+                      />
+                    )}
+                  </DragOverlay>
+                </DndContext>
               )}
             </CardContent>
           </Card>
