@@ -118,11 +118,28 @@ prisma/
 
 # User Guide
 
+## Table of Contents
+
+1. [Workflow Management](#workflow-management-guide)
+2. [Understanding Transitions](#understanding-transitions)
+3. [Building Your First Workflow](#building-your-first-workflow-step-by-step)
+4. [Workflow Editor Reference](#workflow-editor-reference)
+5. [Claims & Workflow Processing](#claims--workflow-processing)
+6. [Best Practices](#best-practices)
+7. [Troubleshooting](#troubleshooting)
+
+---
+
 ## Workflow Management Guide
 
 ### What is a Workflow?
 
 A **Workflow** is a step-by-step process that defines how warranty claims move through your service center. It automates status changes, assigns tasks, and ensures consistent handling of every claim.
+
+**Key Components:**
+- **Steps** - Individual stages in your process (Inspect, Repair, etc.)
+- **Transitions** - Connections that define how claims move between steps
+- **Rules** - SLA times, required roles, and conditions
 
 ---
 
@@ -163,9 +180,9 @@ A **Workflow** is a step-by-step process that defines how warranty claims move t
 
 After creating a workflow, add steps that define each stage:
 
-1. Go to the workflow detail page
-2. Click **"Add Step"**
-3. Configure each step:
+1. Go to the workflow detail page and click **"Edit Workflow"**
+2. In the left panel, click on a step type to add it
+3. Configure each step in the side panel:
 
 | Field | Description | Example |
 |-------|-------------|---------|
@@ -178,147 +195,378 @@ After creating a workflow, add steps that define each stage:
 | **Can Skip** | Allow skipping this step | Yes/No |
 
 **Step Types:**
-- **START**: First step when claim enters workflow
-- **ACTION**: A task that needs to be completed
-- **DECISION**: A branching point with multiple paths
-- **NOTIFICATION**: Sends alerts (email/SMS)
-- **WAIT**: Pauses for a condition
-- **END**: Final step, marks claim as complete
+
+| Type | Icon | Purpose |
+|------|------|---------|
+| **START** | ▶️ Green | Entry point - where claims begin |
+| **ACTION** | ⬛ Blue | Tasks requiring user action |
+| **DECISION** | ◆ Amber | Branching point with multiple paths |
+| **NOTIFICATION** | 🔔 Purple | Send alerts (email/SMS) |
+| **WAIT** | ⏰ Gray | Pause for time or condition |
+| **END** | ⬛ Red | Exit point - claim is complete |
 
 ---
 
-### 4. Example Workflow Structure
+## Understanding Transitions
 
-Here's a typical repair workflow:
+### What is a Transition?
+
+A **Transition** is the connection between workflow steps. It defines the path a claim takes from one step to another.
+
+**Think of it this way:**
+- **Steps** = What happens (Inspect, Repair, QC Check)
+- **Transitions** = Where to go next (the arrows between steps)
+
+> ⚠️ **Important:** Without transitions, the workflow engine doesn't know how to move claims through the process!
+
+### Why Are Transitions Necessary?
+
+1. **Define the Flow** - Tell the system which step comes next
+2. **Enable Branching** - Create multiple paths from decision points
+3. **Control Navigation** - Determine available options when processing claims
+
+### Transition Properties
+
+| Property | Description | Example |
+|----------|-------------|---------|
+| **From Step** | Source step | "Inspection" |
+| **To Step** | Destination step | "Repair" |
+| **Transition Name** | Label shown to users | "Approve", "Reject" |
+| **Condition Type** | When this path is available | ALWAYS, USER_CHOICE |
+
+### How to Add Transitions
+
+1. In the Workflow Editor, find the step you want to connect FROM
+2. Click **"Add transition..."** button below the step
+3. Select the target step from the dropdown
+4. The transition appears as an arrow showing the connection
+
+### Transition Examples
+
+**Example 1: Linear Flow (Simple)**
+```
+[Received] ──→ [Inspection] ──→ [Repair] ──→ [Complete]
+```
+Each step has ONE transition to the next step.
+
+**Example 2: Decision Branching**
+```
+                         ┌──→ [Repair] ──→ [Complete]
+[Inspection] ───────────┤
+                         └──→ [Reject] ──→ [Return]
+```
+The Inspection step has TWO transitions:
+- "Approve" → goes to Repair
+- "Reject" → goes to Return
+
+**Example 3: Multiple Entry Points**
+```
+[Inspection] ──→ [QC Check] ──→ [Complete]
+                     ↑
+[Repair] ───────────┘
+```
+Both Inspection and Repair can transition to QC Check.
+
+### Condition Types
+
+| Type | Behavior | Use Case |
+|------|----------|----------|
+| **ALWAYS** | Automatically available | Linear flows, single path |
+| **USER_CHOICE** | User selects this option | Decision points, approvals |
+| **CONDITIONAL** | Based on data/rules | Automated routing |
+
+---
+
+## Building Your First Workflow (Step-by-Step)
+
+### Step 1: Plan Your Process
+
+Before building, sketch out your process:
+```
+What steps does a claim go through?
+Who handles each step?
+Are there any decision points?
+What are acceptable timeframes?
+```
+
+### Step 2: Create the Workflow
+
+1. Navigate to **Workflows** → **New Workflow**
+2. Enter:
+   - Name: "Standard Warranty Process"
+   - Description: "Default process for warranty claims"
+   - Trigger Type: **Auto on Claim**
+   - Is Default: **Yes**
+   - Is Active: **Yes**
+3. Click **Create Workflow**
+
+### Step 3: Add Steps
+
+Click **Edit Workflow** and add these steps:
+
+| Order | Name | Type | Status | SLA |
+|-------|------|------|--------|-----|
+| 1 | Claim Received | START | received | - |
+| 2 | Initial Inspection | ACTION | inspecting | 24h |
+| 3 | Repair in Progress | ACTION | repairing | 48h |
+| 4 | Quality Check | ACTION | qc_check | 8h |
+| 5 | Ready for Pickup | END | completed | - |
+
+### Step 4: Add Transitions
+
+Connect your steps:
+
+1. On "Claim Received" → Click **Add transition** → Select "Initial Inspection"
+2. On "Initial Inspection" → Click **Add transition** → Select "Repair in Progress"
+3. On "Repair in Progress" → Click **Add transition** → Select "Quality Check"
+4. On "Quality Check" → Click **Add transition** → Select "Ready for Pickup"
+
+### Step 5: Save and Test
+
+1. Click **Save Workflow**
+2. Create a test claim
+3. Verify the claim moves through each step correctly
+
+### Visual Result
 
 ```
-┌─────────────────┐
-│  1. Received    │ (START)
-│  Status: new    │
-└────────┬────────┘
-         ↓
-┌─────────────────┐
-│  2. Inspection  │ (ACTION)
+┌─────────────────────┐
+│  1. Claim Received  │ (START)
+│  Status: received   │
+└──────────┬──────────┘
+           │ [Next]
+           ↓
+┌─────────────────────┐
+│  2. Inspection      │ (ACTION)
 │  Status: inspecting │
-│  SLA: 24 hours  │
-└────────┬────────┘
-         ↓
-┌─────────────────┐
-│  3. Repair      │ (ACTION)
-│  Status: repairing │
-│  SLA: 48 hours  │
-└────────┬────────┘
-         ↓
-┌─────────────────┐
-│  4. QC Check    │ (ACTION)
-│  Status: quality_check │
-│  SLA: 8 hours   │
-└────────┬────────┘
-         ↓
-┌─────────────────┐
-│  5. Completed   │ (END)
-│  Status: completed │
-└─────────────────┘
+│  SLA: 24 hours      │
+└──────────┬──────────┘
+           │ [Next]
+           ↓
+┌─────────────────────┐
+│  3. Repair          │ (ACTION)
+│  Status: repairing  │
+│  SLA: 48 hours      │
+└──────────┬──────────┘
+           │ [Next]
+           ↓
+┌─────────────────────┐
+│  4. QC Check        │ (ACTION)
+│  Status: qc_check   │
+│  SLA: 8 hours       │
+└──────────┬──────────┘
+           │ [Complete]
+           ↓
+┌─────────────────────┐
+│  5. Ready for Pickup│ (END)
+│  Status: completed  │
+└─────────────────────┘
 ```
 
 ---
 
-### 5. Processing Claims Through Workflow
+## Workflow Editor Reference
 
-When a claim is assigned to a workflow:
+### Editor Layout
 
-1. Go to **Claims** → Click on a claim
-2. You'll see the **"Current Workflow Step"** card showing:
-   - Current step name
-   - Step status
-   - Available next steps
-   - Form fields to fill (if any)
+```
+┌──────────────────────────────────────────────────────────┐
+│  Edit: Standard Warranty Process     [Back] [Save]       │
+├──────────────┬───────────────────────────────────────────┤
+│              │                                           │
+│  Add Steps   │         Workflow Canvas                   │
+│  ──────────  │         ────────────────                  │
+│  ▶️ Start    │  ┌─────────────────────────────────┐      │
+│  ⬛ Action   │  │ Step Card                       │      │
+│  ◆ Decision  │  │   → Transitions                 │      │
+│  🔔 Notify   │  │   [Add transition...]           │      │
+│  ⏰ Wait     │  └─────────────────────────────────┘      │
+│  ⬛ End      │                                           │
+│              │                                           │
+│  ──────────  │                                           │
+│  Workflow    │                                           │
+│  Info        │                                           │
+│              │                                           │
+└──────────────┴───────────────────────────────────────────┘
+```
 
-3. Click **"Process Step"** to complete the current step
-4. Fill in any required information
-5. Select the next step (if multiple options)
-6. Add notes (optional)
-7. Click **"Complete Step"**
+### Step Configuration Panel
 
-The claim automatically moves to the next step and updates its status.
+When you click on a step, a configuration panel opens with three tabs:
+
+**Basic Tab:**
+- Step Name
+- Description
+- Step Type
+- Status Name (used for claim status)
+
+**Rules Tab:**
+- Required Role (who can process this step)
+- Auto-Assign To (automatically assign to user)
+- SLA Hours (deadline)
+- Warning Hours (reminder before deadline)
+
+**Advanced Tab:**
+- Optional Step toggle
+- Can Skip toggle
+
+### Keyboard Shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Save Workflow | Ctrl + S |
+| Move Step Up | Click ↑ button |
+| Move Step Down | Click ↓ button |
+| Delete Step | Click 🗑️ button |
 
 ---
 
-### 6. Workflow on Claim Detail Page
+## Claims & Workflow Processing
 
-When viewing a claim with an active workflow:
+### How Claims Use Workflows
+
+1. **Claim Created** → Workflow automatically assigned (if Auto trigger)
+2. **Claim at Step** → Shows current step, available transitions
+3. **Process Step** → User completes step, selects next transition
+4. **Claim Moves** → Status updates, moves to next step
+5. **Workflow Complete** → Claim reaches END step
+
+### Processing a Claim
+
+1. Open a claim from the Claims list
+2. Find the **"Current Workflow Step"** card
+3. Review current step information
+4. Click **"Process Step"**
+5. Fill any required fields
+6. Select next step (if multiple transitions)
+7. Add notes (optional)
+8. Click **"Complete Step"**
+
+### Workflow Status on Claims
 
 ```
 ┌────────────────────────────────────────┐
 │  Current Workflow Step                 │
 │  ─────────────────────────────────────│
-│  Step: Initial Inspection              │
-│  Status: inspecting                    │
-│  SLA: 24 hours                         │
+│  📍 Step: Initial Inspection           │
+│  📊 Status: inspecting                 │
+│  ⏱️  SLA: 24 hours (18h remaining)     │
 │                                        │
-│  Next Steps:                           │
-│  → Repair in Progress                  │
-│  → Return to Customer (if no repair)   │
+│  Available Actions:                    │
+│  → Proceed to Repair                   │
+│  → Reject Claim                        │
 │                                        │
-│  [Process Step]  [Skip]                │
+│  [Process Step]  [Skip Step]           │
 └────────────────────────────────────────┘
 ```
 
 ---
 
-### 7. Tips for Effective Workflows
+## Best Practices
 
-1. **Start Simple**: Begin with 4-5 steps, add complexity later
-2. **Use Clear Status Names**: "inspecting", "repairing", "ready_for_pickup"
-3. **Set Realistic SLAs**: Consider actual time needed for each step
-4. **Make One Default**: Set your most common workflow as default
-5. **Test First**: Create a test claim to verify workflow works correctly
+### Workflow Design
 
----
+1. **Start Simple** - Begin with 4-5 steps, add complexity later
+2. **Use Clear Names** - "Initial Inspection" not "Step 2"
+3. **Consistent Status Names** - Use lowercase with underscores: `in_review`, `pending_approval`
+4. **One Default Workflow** - Set your primary workflow as default
+5. **Test Before Go-Live** - Create test claims to verify flow
 
-### 8. Common Workflow Patterns
+### Transitions
 
-**Pattern A: Linear Flow**
-```
-Received → Inspect → Repair → QC → Complete
-```
+1. **Always Connect Steps** - Every step (except END) needs at least one outgoing transition
+2. **Name Your Transitions** - Use action verbs: "Approve", "Reject", "Send for Review"
+3. **Consider All Paths** - What happens on approval? Rejection? Edge cases?
+4. **Avoid Dead Ends** - Every path should eventually reach an END step
 
-**Pattern B: With Decision**
-```
-Received → Inspect → [Under Warranty?]
-                         ├─ Yes → Repair → Complete
-                         └─ No → Quote to Customer → ...
-```
+### SLA Configuration
 
-**Pattern C: With Skip Option**
-```
-Received → Inspect (can skip) → Repair → Complete
-```
+| Step Type | Suggested SLA |
+|-----------|---------------|
+| Initial Review | 4-8 hours |
+| Inspection | 24 hours |
+| Repair | 24-72 hours |
+| QC Check | 4-8 hours |
+| Documentation | 2-4 hours |
 
----
+### Role Assignment
 
-### 9. Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| Can't see workflow on claim | Ensure workflow is Active and assigned |
-| "Process Step" not working | Check you have required permissions |
-| Claim stuck at a step | Check if there are form fields to fill |
-| Wrong next step | Review step transitions configuration |
+- Assign **Required Role** to steps that need specific expertise
+- Use **Auto-Assign** for steps that always go to the same person
+- Leave blank for steps any user can process
 
 ---
 
-### Quick Start Checklist
+## Troubleshooting
 
-- [ ] Create a workflow with a descriptive name
-- [ ] Set trigger type (recommend: Auto on Claim)
-- [ ] Mark as Default if it's your main process
-- [ ] Add at least: START step, 1-2 ACTION steps, END step
-- [ ] Set SLA hours for time-sensitive steps
-- [ ] Activate the workflow
-- [ ] Test with a new claim
+### Common Issues
 
-Your workflow is now ready to automate claim processing!
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Claim not showing workflow | Workflow not active or not default | Activate workflow, set as default |
+| Can't process step | Missing required role | Check user has required role |
+| No "Next Step" options | Missing transitions | Add transitions in workflow editor |
+| Claim stuck | No transition to next step | Add missing transition |
+| Wrong status showing | Status name mismatch | Update step's Status Name field |
+
+### Workflow Validation
+
+Before activating, ensure your workflow has:
+
+- [ ] At least one START step
+- [ ] At least one END step
+- [ ] All steps connected with transitions
+- [ ] No orphan steps (steps with no incoming/outgoing transitions)
+- [ ] Realistic SLA times configured
+- [ ] Clear, descriptive step names
+
+### Debug Checklist
+
+1. **Workflow Active?** - Check workflow status is Active
+2. **Transitions Exist?** - Verify all steps have outgoing transitions
+3. **Permissions OK?** - User has required role for step
+4. **SLA Configured?** - Check SLA hours are set
+5. **Default Set?** - One workflow should be marked as default
+
+---
+
+## Quick Reference Card
+
+### Workflow Creation Checklist
+
+```
+□ Create workflow with name & description
+□ Set trigger type (Auto on Claim recommended)
+□ Mark as Default if primary workflow
+□ Add START step
+□ Add ACTION steps for each stage
+□ Add END step
+□ Connect all steps with transitions
+□ Configure SLA for time-sensitive steps
+□ Set Required Roles where needed
+□ Activate workflow
+□ Test with sample claim
+```
+
+### Step Types Quick Reference
+
+| Type | Use When | Example |
+|------|----------|---------|
+| START | Entry point | "Claim Received" |
+| ACTION | User does something | "Inspect Product" |
+| DECISION | Multiple possible paths | "Warranty Valid?" |
+| NOTIFICATION | Send alert only | "Notify Customer" |
+| WAIT | Pause needed | "Wait for Parts" |
+| END | Process complete | "Claim Closed" |
+
+### Transition Quick Reference
+
+| Scenario | Transitions Needed |
+|----------|-------------------|
+| Linear flow | 1 per step |
+| Yes/No decision | 2 from decision step |
+| Multiple outcomes | 1 per outcome |
+| Parallel paths | Multiple incoming to merge point |
 
 ---
 

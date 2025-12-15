@@ -94,6 +94,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             stepType: true,
             description: true,
             slaHours: true,
+            slaWarningHours: true,
             canSkip: true,
             isOptional: true,
             formFields: true,

@@ -337,6 +337,7 @@ model WarrantyClaim {
   warrantyCardId   Int
   workflowId       Int?
   currentStepId    Int?
+  currentStepStartedAt DateTime?
   issueDescription String   @db.Text
   issueCategory    String?  @db.VarChar(100)
   reportedBy       ReportedBy @default(SHOP)

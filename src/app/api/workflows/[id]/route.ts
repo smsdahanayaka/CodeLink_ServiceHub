@@ -59,6 +59,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 },
               },
             },
+            _count: {
+              select: { currentClaims: true },
+            },
           },
           orderBy: { stepOrder: "asc" },
         },

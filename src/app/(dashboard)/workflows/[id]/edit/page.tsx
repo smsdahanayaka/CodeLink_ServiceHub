@@ -54,6 +54,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -160,6 +165,7 @@ export default function WorkflowEditPage({
   const [showAddStep, setShowAddStep] = useState(false);
   const [deleteStepId, setDeleteStepId] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [openTransitionPopover, setOpenTransitionPopover] = useState<string | null>(null);
 
   // Fetch workflow and reference data
   useEffect(() => {
@@ -689,34 +695,67 @@ export default function WorkflowEditPage({
                           {/* Add Transition Button */}
                           {step.stepType !== "END" && (
                             <div className="ml-16 mt-2">
-                              <Select
-                                value=""
-                                onValueChange={(value) =>
-                                  handleAddTransition(step.tempId, value)
-                                }
-                              >
-                                <SelectTrigger className="w-[200px] h-8 text-xs">
-                                  <Plus className="h-3 w-3 mr-1" />
-                                  Add transition...
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {steps
-                                    .filter(
-                                      (s) =>
-                                        s.tempId !== step.tempId &&
-                                        !transitions.some(
-                                          (t) =>
-                                            t.fromTempId === step.tempId &&
-                                            t.toTempId === s.tempId
-                                        )
+                              {(() => {
+                                const availableSteps = steps.filter(
+                                  (s) =>
+                                    s.tempId !== step.tempId &&
+                                    !transitions.some(
+                                      (t) =>
+                                        t.fromTempId === step.tempId &&
+                                        t.toTempId === s.tempId
                                     )
-                                    .map((s) => (
-                                      <SelectItem key={s.tempId} value={s.tempId}>
-                                        {s.name}
-                                      </SelectItem>
-                                    ))}
-                                </SelectContent>
-                              </Select>
+                                );
+
+                                if (availableSteps.length === 0) {
+                                  return (
+                                    <span className="text-xs text-muted-foreground italic">
+                                      No more steps available to connect
+                                    </span>
+                                  );
+                                }
+
+                                return (
+                                  <Popover
+                                    open={openTransitionPopover === step.tempId}
+                                    onOpenChange={(open) => setOpenTransitionPopover(open ? step.tempId : null)}
+                                  >
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 text-xs gap-1"
+                                      >
+                                        <Plus className="h-3 w-3" />
+                                        Add transition...
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[220px] p-2" align="start">
+                                      <div className="space-y-1">
+                                        <p className="text-xs font-medium text-muted-foreground px-2 pb-1">
+                                          Select target step
+                                        </p>
+                                        {availableSteps.map((s) => {
+                                          const StepIcon = getStepIcon(s.stepType);
+                                          return (
+                                            <Button
+                                              key={s.tempId}
+                                              variant="ghost"
+                                              className="w-full justify-start h-9 text-sm font-normal"
+                                              onClick={() => {
+                                                handleAddTransition(step.tempId, s.tempId);
+                                                setOpenTransitionPopover(null);
+                                              }}
+                                            >
+                                              <StepIcon className={cn("h-4 w-4 mr-2", getStepColor(s.stepType))} />
+                                              {s.name}
+                                            </Button>
+                                          );
+                                        })}
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                );
+                              })()}
                             </div>
                           )}
 
@@ -736,233 +775,564 @@ export default function WorkflowEditPage({
 
       {/* Step Configuration Sheet */}
       <Sheet open={showStepSheet} onOpenChange={setShowStepSheet}>
-        <SheetContent className="w-[500px] sm:max-w-[500px] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Configure Step</SheetTitle>
-            <SheetDescription>
-              Edit step properties and settings
-            </SheetDescription>
-          </SheetHeader>
-
+        <SheetContent className="w-[540px] sm:max-w-[540px] overflow-y-auto p-0">
           {selectedStep && (
-            <div className="mt-6 space-y-6">
-              <Tabs defaultValue="basic">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="basic">Basic</TabsTrigger>
-                  <TabsTrigger value="rules">Rules</TabsTrigger>
-                  <TabsTrigger value="advanced">Advanced</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="basic" className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label>Step Name</Label>
-                    <Input
-                      value={selectedStep.name}
-                      onChange={(e) =>
-                        handleUpdateStep({ ...selectedStep, name: e.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Description</Label>
-                    <Textarea
-                      value={selectedStep.description}
-                      onChange={(e) =>
-                        handleUpdateStep({
-                          ...selectedStep,
-                          description: e.target.value,
-                        })
-                      }
-                      rows={3}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Step Type</Label>
-                    <Select
-                      value={selectedStep.stepType}
-                      onValueChange={(value) =>
-                        handleUpdateStep({
-                          ...selectedStep,
-                          stepType: value as WorkflowStep["stepType"],
-                        })
-                      }
+            <>
+              {/* Header with step icon */}
+              <div className="sticky top-0 z-10 bg-background border-b">
+                <div className="px-6 py-5">
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={cn(
+                        "w-12 h-12 rounded-xl flex items-center justify-center shadow-sm",
+                        selectedStep.stepType === "START" && "bg-green-100",
+                        selectedStep.stepType === "END" && "bg-red-100",
+                        selectedStep.stepType === "ACTION" && "bg-blue-100",
+                        selectedStep.stepType === "DECISION" && "bg-amber-100",
+                        selectedStep.stepType === "NOTIFICATION" && "bg-purple-100",
+                        selectedStep.stepType === "WAIT" && "bg-gray-100"
+                      )}
                     >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {stepTypes.map((type) => (
-                          <SelectItem key={type.value} value={type.value}>
-                            {type.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Status Name</Label>
-                    <Input
-                      value={selectedStep.statusName}
-                      onChange={(e) =>
-                        handleUpdateStep({
-                          ...selectedStep,
-                          statusName: e.target.value,
-                        })
-                      }
-                      placeholder="e.g., in_review, pending_approval"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      This will be the claim status when at this step
-                    </p>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="rules" className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label>Required Role</Label>
-                    <Select
-                      value={selectedStep.requiredRoleId?.toString() || "none"}
-                      onValueChange={(value) =>
-                        handleUpdateStep({
-                          ...selectedStep,
-                          requiredRoleId: value === "none" ? null : parseInt(value),
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Any role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Any role</SelectItem>
-                        {roles.map((role) => (
-                          <SelectItem key={role.id} value={role.id.toString()}>
-                            {role.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Auto-Assign To</Label>
-                    <Select
-                      value={selectedStep.autoAssignTo?.toString() || "none"}
-                      onValueChange={(value) =>
-                        handleUpdateStep({
-                          ...selectedStep,
-                          autoAssignTo: value === "none" ? null : parseInt(value),
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="No auto-assign" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No auto-assign</SelectItem>
-                        {users.map((user) => (
-                          <SelectItem key={user.id} value={user.id.toString()}>
-                            {user.firstName} {user.lastName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>SLA Hours</Label>
-                      <Input
-                        type="number"
-                        value={selectedStep.slaHours || ""}
-                        onChange={(e) =>
-                          handleUpdateStep({
-                            ...selectedStep,
-                            slaHours: e.target.value
-                              ? parseInt(e.target.value)
-                              : null,
-                          })
-                        }
-                        placeholder="e.g., 24"
-                      />
+                      {(() => {
+                        const Icon = getStepIcon(selectedStep.stepType);
+                        return <Icon className={cn("h-6 w-6", getStepColor(selectedStep.stepType))} />;
+                      })()}
                     </div>
-                    <div className="space-y-2">
-                      <Label>Warning Hours</Label>
-                      <Input
-                        type="number"
-                        value={selectedStep.slaWarningHours || ""}
-                        onChange={(e) =>
-                          handleUpdateStep({
-                            ...selectedStep,
-                            slaWarningHours: e.target.value
-                              ? parseInt(e.target.value)
-                              : null,
-                          })
-                        }
-                        placeholder="e.g., 20"
-                      />
+                    <div className="flex-1">
+                      <SheetTitle className="text-xl">Configure Step</SheetTitle>
+                      <SheetDescription className="mt-0.5">
+                        {stepTypes.find(t => t.value === selectedStep.stepType)?.description}
+                      </SheetDescription>
                     </div>
+                    <Badge variant="outline" className="text-sm px-3 py-1">
+                      {selectedStep.stepType}
+                    </Badge>
                   </div>
-                </TabsContent>
-
-                <TabsContent value="advanced" className="space-y-4 mt-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label>Optional Step</Label>
-                      <p className="text-sm text-muted-foreground">
-                        This step can be skipped
-                      </p>
-                    </div>
-                    <Switch
-                      checked={selectedStep.isOptional}
-                      onCheckedChange={(checked) =>
-                        handleUpdateStep({
-                          ...selectedStep,
-                          isOptional: checked,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label>Can Skip</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Allow users to skip this step
-                      </p>
-                    </div>
-                    <Switch
-                      checked={selectedStep.canSkip}
-                      onCheckedChange={(checked) =>
-                        handleUpdateStep({
-                          ...selectedStep,
-                          canSkip: checked,
-                        })
-                      }
-                    />
-                  </div>
-                </TabsContent>
-              </Tabs>
-
-              <div className="flex gap-2 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => setShowStepSheet(false)}
-                >
-                  Close
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => setDeleteStepId(selectedStep.tempId)}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
-                </Button>
+                </div>
               </div>
-            </div>
+
+              {/* Content */}
+              <div className="px-6 py-6">
+                <Tabs defaultValue="basic" className="w-full">
+                  <TabsList className="grid w-full grid-cols-4 mb-6">
+                    <TabsTrigger value="basic" className="gap-2">
+                      <Settings className="h-4 w-4" />
+                      Basic
+                    </TabsTrigger>
+                    <TabsTrigger value="rules" className="gap-2">
+                      <Check className="h-4 w-4" />
+                      Rules
+                    </TabsTrigger>
+                    <TabsTrigger value="fields" className="gap-2">
+                      <Plus className="h-4 w-4" />
+                      Fields
+                    </TabsTrigger>
+                    <TabsTrigger value="advanced" className="gap-2">
+                      <Diamond className="h-4 w-4" />
+                      Advanced
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="basic" className="space-y-6 mt-0">
+                    {/* Step Name */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Step Name *</Label>
+                      <Input
+                        value={selectedStep.name}
+                        onChange={(e) =>
+                          handleUpdateStep({ ...selectedStep, name: e.target.value })
+                        }
+                        placeholder="Enter step name"
+                        className="h-11"
+                      />
+                    </div>
+
+                    {/* Description */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Description</Label>
+                      <Textarea
+                        value={selectedStep.description}
+                        onChange={(e) =>
+                          handleUpdateStep({
+                            ...selectedStep,
+                            description: e.target.value,
+                          })
+                        }
+                        rows={3}
+                        placeholder="Describe what happens in this step..."
+                        className="resize-none"
+                      />
+                    </div>
+
+                    {/* Step Type */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Step Type *</Label>
+                      <Select
+                        value={selectedStep.stepType}
+                        onValueChange={(value) =>
+                          handleUpdateStep({
+                            ...selectedStep,
+                            stepType: value as WorkflowStep["stepType"],
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {stepTypes.map((type) => {
+                            const TypeIcon = type.icon;
+                            return (
+                              <SelectItem key={type.value} value={type.value}>
+                                <div className="flex items-center gap-2">
+                                  <TypeIcon className={cn("h-4 w-4", type.color)} />
+                                  <span>{type.label}</span>
+                                </div>
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Status Name */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Status Name *</Label>
+                      <Input
+                        value={selectedStep.statusName}
+                        onChange={(e) =>
+                          handleUpdateStep({
+                            ...selectedStep,
+                            statusName: e.target.value,
+                          })
+                        }
+                        placeholder="e.g., in_review, pending_approval"
+                        className="h-11"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        This will be the claim status when at this step. Use lowercase with underscores.
+                      </p>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="rules" className="space-y-6 mt-0">
+                    {/* Required Role */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Required Role</Label>
+                      <Select
+                        value={selectedStep.requiredRoleId?.toString() || "none"}
+                        onValueChange={(value) =>
+                          handleUpdateStep({
+                            ...selectedStep,
+                            requiredRoleId: value === "none" ? null : parseInt(value),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue placeholder="Any role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Any role can process</SelectItem>
+                          {roles.map((role) => (
+                            <SelectItem key={role.id} value={role.id.toString()}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Only users with this role can process this step
+                      </p>
+                    </div>
+
+                    {/* Auto-Assign To */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Auto-Assign To</Label>
+                      <Select
+                        value={selectedStep.autoAssignTo?.toString() || "none"}
+                        onValueChange={(value) =>
+                          handleUpdateStep({
+                            ...selectedStep,
+                            autoAssignTo: value === "none" ? null : parseInt(value),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue placeholder="No auto-assign" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No auto-assign</SelectItem>
+                          {users.map((user) => (
+                            <SelectItem key={user.id} value={user.id.toString()}>
+                              {user.firstName} {user.lastName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Automatically assign claims to this user when reaching this step
+                      </p>
+                    </div>
+
+                    {/* SLA Section */}
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">SLA Settings</Label>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Deadline (hours)</Label>
+                          <Input
+                            type="number"
+                            value={selectedStep.slaHours || ""}
+                            onChange={(e) =>
+                              handleUpdateStep({
+                                ...selectedStep,
+                                slaHours: e.target.value
+                                  ? parseInt(e.target.value)
+                                  : null,
+                              })
+                            }
+                            placeholder="e.g., 24"
+                            className="h-11"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Warning (hours)</Label>
+                          <Input
+                            type="number"
+                            value={selectedStep.slaWarningHours || ""}
+                            onChange={(e) =>
+                              handleUpdateStep({
+                                ...selectedStep,
+                                slaWarningHours: e.target.value
+                                  ? parseInt(e.target.value)
+                                  : null,
+                              })
+                            }
+                            placeholder="e.g., 20"
+                            className="h-11"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Set time limits for this step. Warning triggers before deadline.
+                      </p>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="fields" className="space-y-6 mt-0">
+                    {/* Form Fields Builder */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-sm font-medium">Custom Form Fields</Label>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Add fields that users must fill when processing this step
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const newField: FormField = {
+                              name: `field_${Date.now()}`,
+                              label: "New Field",
+                              type: "text",
+                              required: false,
+                            };
+                            handleUpdateStep({
+                              ...selectedStep,
+                              formFields: [...selectedStep.formFields, newField],
+                            });
+                          }}
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Field
+                        </Button>
+                      </div>
+
+                      {selectedStep.formFields.length === 0 ? (
+                        <div className="border border-dashed rounded-lg p-8 text-center">
+                          <Plus className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                          <p className="text-sm text-muted-foreground">
+                            No custom fields defined. Click &quot;Add Field&quot; to create one.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {selectedStep.formFields.map((field, fieldIndex) => (
+                            <div
+                              key={fieldIndex}
+                              className="border rounded-lg p-4 space-y-3 bg-muted/30"
+                            >
+                              <div className="flex items-center justify-between">
+                                <Badge variant="outline" className="text-xs">
+                                  {field.type}
+                                </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-destructive"
+                                  onClick={() => {
+                                    const newFields = selectedStep.formFields.filter(
+                                      (_, i) => i !== fieldIndex
+                                    );
+                                    handleUpdateStep({
+                                      ...selectedStep,
+                                      formFields: newFields,
+                                    });
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Field Name (ID)</Label>
+                                  <Input
+                                    value={field.name}
+                                    onChange={(e) => {
+                                      const newFields = [...selectedStep.formFields];
+                                      newFields[fieldIndex] = {
+                                        ...field,
+                                        name: e.target.value.toLowerCase().replace(/\s+/g, "_"),
+                                      };
+                                      handleUpdateStep({
+                                        ...selectedStep,
+                                        formFields: newFields,
+                                      });
+                                    }}
+                                    placeholder="field_name"
+                                    className="h-9"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Display Label</Label>
+                                  <Input
+                                    value={field.label}
+                                    onChange={(e) => {
+                                      const newFields = [...selectedStep.formFields];
+                                      newFields[fieldIndex] = {
+                                        ...field,
+                                        label: e.target.value,
+                                      };
+                                      handleUpdateStep({
+                                        ...selectedStep,
+                                        formFields: newFields,
+                                      });
+                                    }}
+                                    placeholder="Field Label"
+                                    className="h-9"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Field Type</Label>
+                                  <Select
+                                    value={field.type}
+                                    onValueChange={(value) => {
+                                      const newFields = [...selectedStep.formFields];
+                                      newFields[fieldIndex] = {
+                                        ...field,
+                                        type: value as FormField["type"],
+                                        options: value === "select" ? [{ label: "Option 1", value: "option_1" }] : undefined,
+                                      };
+                                      handleUpdateStep({
+                                        ...selectedStep,
+                                        formFields: newFields,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-9">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="text">Text</SelectItem>
+                                      <SelectItem value="textarea">Text Area</SelectItem>
+                                      <SelectItem value="number">Number</SelectItem>
+                                      <SelectItem value="date">Date</SelectItem>
+                                      <SelectItem value="select">Dropdown</SelectItem>
+                                      <SelectItem value="checkbox">Checkbox</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex items-end pb-1">
+                                  <div className="flex items-center space-x-2">
+                                    <input
+                                      type="checkbox"
+                                      id={`required-${fieldIndex}`}
+                                      checked={field.required}
+                                      onChange={(e) => {
+                                        const newFields = [...selectedStep.formFields];
+                                        newFields[fieldIndex] = {
+                                          ...field,
+                                          required: e.target.checked,
+                                        };
+                                        handleUpdateStep({
+                                          ...selectedStep,
+                                          formFields: newFields,
+                                        });
+                                      }}
+                                      className="h-4 w-4 rounded border-gray-300"
+                                    />
+                                    <Label htmlFor={`required-${fieldIndex}`} className="text-xs">
+                                      Required field
+                                    </Label>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Options for select type */}
+                              {field.type === "select" && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <Label className="text-xs">Options</Label>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      onClick={() => {
+                                        const newFields = [...selectedStep.formFields];
+                                        newFields[fieldIndex] = {
+                                          ...field,
+                                          options: [
+                                            ...(field.options || []),
+                                            { label: `Option ${(field.options?.length || 0) + 1}`, value: `option_${(field.options?.length || 0) + 1}` },
+                                          ],
+                                        };
+                                        handleUpdateStep({
+                                          ...selectedStep,
+                                          formFields: newFields,
+                                        });
+                                      }}
+                                    >
+                                      <Plus className="h-3 w-3 mr-1" />
+                                      Add Option
+                                    </Button>
+                                  </div>
+                                  <div className="space-y-2">
+                                    {field.options?.map((option, optionIndex) => (
+                                      <div key={optionIndex} className="flex items-center gap-2">
+                                        <Input
+                                          value={option.label}
+                                          onChange={(e) => {
+                                            const newFields = [...selectedStep.formFields];
+                                            const newOptions = [...(newFields[fieldIndex].options || [])];
+                                            newOptions[optionIndex] = {
+                                              label: e.target.value,
+                                              value: e.target.value.toLowerCase().replace(/\s+/g, "_"),
+                                            };
+                                            newFields[fieldIndex] = {
+                                              ...field,
+                                              options: newOptions,
+                                            };
+                                            handleUpdateStep({
+                                              ...selectedStep,
+                                              formFields: newFields,
+                                            });
+                                          }}
+                                          placeholder="Option label"
+                                          className="h-8 text-sm"
+                                        />
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 shrink-0"
+                                          onClick={() => {
+                                            const newFields = [...selectedStep.formFields];
+                                            const newOptions = (newFields[fieldIndex].options || []).filter(
+                                              (_, i) => i !== optionIndex
+                                            );
+                                            newFields[fieldIndex] = {
+                                              ...field,
+                                              options: newOptions,
+                                            };
+                                            handleUpdateStep({
+                                              ...selectedStep,
+                                              formFields: newFields,
+                                            });
+                                          }}
+                                          disabled={(field.options?.length || 0) <= 1}
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="advanced" className="space-y-6 mt-0">
+                    {/* Optional Step */}
+                    <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm font-medium">Optional Step</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Mark this step as optional in the workflow
+                        </p>
+                      </div>
+                      <Switch
+                        checked={selectedStep.isOptional}
+                        onCheckedChange={(checked) =>
+                          handleUpdateStep({
+                            ...selectedStep,
+                            isOptional: checked,
+                          })
+                        }
+                      />
+                    </div>
+
+                    {/* Can Skip */}
+                    <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm font-medium">Allow Skip</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Users can skip this step when processing claims
+                        </p>
+                      </div>
+                      <Switch
+                        checked={selectedStep.canSkip}
+                        onCheckedChange={(checked) =>
+                          handleUpdateStep({
+                            ...selectedStep,
+                            canSkip: checked,
+                          })
+                        }
+                      />
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="sticky bottom-0 bg-background border-t px-6 py-4">
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-11"
+                    onClick={() => setShowStepSheet(false)}
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="h-11"
+                    onClick={() => setDeleteStepId(selectedStep.tempId)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Step
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
         </SheetContent>
       </Sheet>

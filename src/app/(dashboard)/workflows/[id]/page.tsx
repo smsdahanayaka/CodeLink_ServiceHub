@@ -64,7 +64,7 @@ interface WorkflowStep {
     conditionType: string;
     toStep: { id: number; name: string; stepOrder: number };
   }[];
-  _count: { currentClaims: number };
+  _count?: { currentClaims: number };
 }
 
 interface Workflow {
@@ -368,9 +368,9 @@ export default function WorkflowDetailPage({
                                 Auto-assign: {step.autoAssignUser.firstName} {step.autoAssignUser.lastName}
                               </span>
                             )}
-                            {step._count.currentClaims > 0 && (
+                            {(step._count?.currentClaims ?? 0) > 0 && (
                               <span className="flex items-center gap-1 text-primary">
-                                {step._count.currentClaims} active claims
+                                {step._count?.currentClaims} active claims
                               </span>
                             )}
                           </div>

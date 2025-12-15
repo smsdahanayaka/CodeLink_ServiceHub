@@ -27,9 +27,13 @@ import {
   Play,
   SkipForward,
   ChevronRight,
+  Timer,
+  AlertCircle,
+  Settings,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { format, formatDistanceToNow, differenceInHours, addHours } from "date-fns";
 
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
@@ -61,6 +65,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { PageLoading, EmptyState } from "@/components/common";
+import { Progress } from "@/components/ui/progress";
 
 interface WorkflowTransition {
   id: number;
@@ -76,6 +81,7 @@ interface CurrentStep {
   stepType: string;
   description: string | null;
   slaHours: number | null;
+  slaWarningHours: number | null;
   canSkip: boolean;
   isOptional: boolean;
   formFields: FormField[] | null;
@@ -147,6 +153,7 @@ interface ClaimDetail {
   createdByUser: { id: number; firstName: string | null; lastName: string | null } | null;
   workflow: { id: number; name: string } | null;
   currentStep: CurrentStep | null;
+  currentStepStartedAt: string | null;
   claimHistory: Array<{
     id: number;
     fromStatus: string | null;
@@ -167,6 +174,14 @@ interface User {
   email: string;
 }
 
+interface Workflow {
+  id: number;
+  name: string;
+  description: string | null;
+  triggerType: string;
+  isActive: boolean;
+}
+
 export default function ClaimDetailPage({
   params,
 }: {
@@ -177,11 +192,14 @@ export default function ClaimDetailPage({
   const [claim, setClaim] = useState<ClaimDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
 
   // Dialog states
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [workflowAssignDialogOpen, setWorkflowAssignDialogOpen] = useState(false);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>("");
 
   // Form states
   const [newStatus, setNewStatus] = useState("");
@@ -199,18 +217,20 @@ export default function ClaimDetailPage({
   const [selectedTransitionId, setSelectedTransitionId] = useState<number | null>(null);
   const [workflowNotes, setWorkflowNotes] = useState("");
 
-  // Fetch claim and users
+  // Fetch claim, users, and workflows
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [claimRes, usersRes] = await Promise.all([
+        const [claimRes, usersRes, workflowsRes] = await Promise.all([
           fetch(`/api/claims/${id}`),
           fetch("/api/users?limit=100"),
+          fetch("/api/workflows?isActive=true&limit=100"),
         ]);
 
-        const [claimData, usersData] = await Promise.all([
+        const [claimData, usersData, workflowsData] = await Promise.all([
           claimRes.json(),
           usersRes.json(),
+          workflowsRes.json(),
         ]);
 
         if (claimData.success) {
@@ -222,6 +242,10 @@ export default function ClaimDetailPage({
 
         if (usersData.success) {
           setUsers(usersData.data);
+        }
+
+        if (workflowsData.success) {
+          setWorkflows(workflowsData.data);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -362,6 +386,71 @@ export default function ClaimDetailPage({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Handle workflow assignment
+  const handleWorkflowAssignment = async () => {
+    if (!selectedWorkflowId) {
+      toast.error("Please select a workflow");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/workflows/${selectedWorkflowId}/execute`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          claimId: parseInt(id),
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Workflow assigned successfully");
+        setWorkflowAssignDialogOpen(false);
+        setSelectedWorkflowId("");
+        // Refresh claim data
+        const refreshRes = await fetch(`/api/claims/${id}`);
+        const refreshData = await refreshRes.json();
+        if (refreshData.success) setClaim(refreshData.data);
+      } else {
+        toast.error(data.error?.message || "Failed to assign workflow");
+      }
+    } catch (error) {
+      console.error("Error assigning workflow:", error);
+      toast.error("Failed to assign workflow");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Calculate SLA status
+  const getSlaStatus = () => {
+    if (!claim?.currentStep?.slaHours || !claim?.currentStepStartedAt) {
+      return null;
+    }
+
+    const startTime = new Date(claim.currentStepStartedAt);
+    const deadline = addHours(startTime, claim.currentStep.slaHours);
+    const now = new Date();
+    const hoursRemaining = differenceInHours(deadline, now);
+    const totalHours = claim.currentStep.slaHours;
+    const hoursUsed = differenceInHours(now, startTime);
+    const percentageUsed = Math.min(100, Math.max(0, (hoursUsed / totalHours) * 100));
+
+    const warningHours = claim.currentStep.slaWarningHours || totalHours * 0.8;
+    const isWarning = hoursRemaining <= (totalHours - warningHours) && hoursRemaining > 0;
+    const isBreached = hoursRemaining <= 0;
+
+    return {
+      hoursRemaining,
+      deadline,
+      percentageUsed,
+      isWarning,
+      isBreached,
+      totalHours,
+    };
   };
 
   // Handle workflow step execution
@@ -586,6 +675,29 @@ export default function ClaimDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
+          {/* No Workflow Assigned Card */}
+          {!claim.workflow && (
+            <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <GitBranch className="h-5 w-5 text-amber-600" />
+                    No Workflow Assigned
+                  </CardTitle>
+                </div>
+                <CardDescription>
+                  This claim doesn&apos;t have a workflow assigned. Assign a workflow to track and process this claim through your service process.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={() => setWorkflowAssignDialogOpen(true)}>
+                  <GitBranch className="mr-2 h-4 w-4" />
+                  Assign Workflow
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Workflow Step Card */}
           {claim.workflow && claim.currentStep && claim.currentStep.stepType !== "END" && (
             <Card className="border-primary/50 bg-primary/5">
@@ -595,9 +707,20 @@ export default function ClaimDetailPage({
                     <GitBranch className="h-5 w-5 text-primary" />
                     Current Workflow Step
                   </CardTitle>
-                  <Badge variant="outline" className="text-primary border-primary">
-                    {claim.workflow.name}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-primary border-primary">
+                      {claim.workflow.name}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setWorkflowAssignDialogOpen(true)}
+                      title="Change Workflow"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -613,13 +736,73 @@ export default function ClaimDetailPage({
                         <p className="text-sm text-muted-foreground mt-2">{claim.currentStep.description}</p>
                       )}
                     </div>
-                    {claim.currentStep.slaHours && (
-                      <div className="text-right">
-                        <p className="text-xs text-muted-foreground">SLA</p>
-                        <p className="font-medium">{claim.currentStep.slaHours}h</p>
-                      </div>
-                    )}
                   </div>
+
+                  {/* SLA Tracking */}
+                  {(() => {
+                    const slaStatus = getSlaStatus();
+                    if (!slaStatus) return null;
+
+                    return (
+                      <div className={`p-3 rounded-lg border ${
+                        slaStatus.isBreached
+                          ? "bg-red-50 border-red-200 dark:bg-red-950/30"
+                          : slaStatus.isWarning
+                            ? "bg-amber-50 border-amber-200 dark:bg-amber-950/30"
+                            : "bg-muted"
+                      }`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            {slaStatus.isBreached ? (
+                              <AlertCircle className="h-4 w-4 text-red-500" />
+                            ) : slaStatus.isWarning ? (
+                              <AlertTriangle className="h-4 w-4 text-amber-500" />
+                            ) : (
+                              <Timer className="h-4 w-4 text-muted-foreground" />
+                            )}
+                            <span className={`text-sm font-medium ${
+                              slaStatus.isBreached
+                                ? "text-red-700 dark:text-red-400"
+                                : slaStatus.isWarning
+                                  ? "text-amber-700 dark:text-amber-400"
+                                  : ""
+                            }`}>
+                              {slaStatus.isBreached
+                                ? "SLA Breached!"
+                                : slaStatus.isWarning
+                                  ? "SLA Warning"
+                                  : "SLA Tracking"}
+                            </span>
+                          </div>
+                          <span className={`text-sm font-bold ${
+                            slaStatus.isBreached
+                              ? "text-red-700 dark:text-red-400"
+                              : slaStatus.isWarning
+                                ? "text-amber-700 dark:text-amber-400"
+                                : ""
+                          }`}>
+                            {slaStatus.hoursRemaining > 0
+                              ? `${slaStatus.hoursRemaining}h remaining`
+                              : `${Math.abs(slaStatus.hoursRemaining)}h overdue`}
+                          </span>
+                        </div>
+                        <Progress
+                          value={slaStatus.percentageUsed}
+                          className={`h-2 ${
+                            slaStatus.isBreached
+                              ? "[&>div]:bg-red-500"
+                              : slaStatus.isWarning
+                                ? "[&>div]:bg-amber-500"
+                                : ""
+                          }`}
+                        />
+                        <div className="flex justify-between mt-1 text-xs text-muted-foreground">
+                          <span>Started: {claim.currentStepStartedAt && formatDistanceToNow(new Date(claim.currentStepStartedAt), { addSuffix: true })}</span>
+                          <span>Deadline: {format(slaStatus.deadline, "dd MMM, HH:mm")}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Available Transitions */}
                   {claim.currentStep.transitionsFrom.length > 0 && (
@@ -1199,6 +1382,104 @@ export default function ClaimDetailPage({
                 <>
                   <Play className="mr-2 h-4 w-4" />
                   Complete Step
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Workflow Assignment Dialog */}
+      <Dialog open={workflowAssignDialogOpen} onOpenChange={setWorkflowAssignDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5" />
+              {claim?.workflow ? "Change Workflow" : "Assign Workflow"}
+            </DialogTitle>
+            <DialogDescription>
+              {claim?.workflow
+                ? "Select a different workflow to replace the current one. This will reset the claim to the first step of the new workflow."
+                : "Select a workflow to process this claim. The claim will start at the first step of the workflow."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {claim?.workflow && (
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">Current Workflow</p>
+                <p className="font-medium">{claim.workflow.name}</p>
+                {claim.currentStep && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Current Step: {claim.currentStep.name}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Select Workflow</Label>
+              <Select value={selectedWorkflowId} onValueChange={setSelectedWorkflowId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a workflow..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {workflows.map((wf) => (
+                    <SelectItem
+                      key={wf.id}
+                      value={wf.id.toString()}
+                      disabled={claim?.workflow?.id === wf.id}
+                    >
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-4 w-4" />
+                        <span>{wf.name}</span>
+                        {claim?.workflow?.id === wf.id && (
+                          <Badge variant="secondary" className="ml-2 text-xs">Current</Badge>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {workflows.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No active workflows available. Create a workflow first.
+                </p>
+              )}
+            </div>
+
+            {claim?.workflow && selectedWorkflowId && selectedWorkflowId !== claim.workflow.id.toString() && (
+              <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30">
+                <div className="flex gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-amber-700 dark:text-amber-400">Warning</p>
+                    <p className="text-amber-600 dark:text-amber-300 mt-1">
+                      Changing the workflow will reset the claim&apos;s progress. The claim will start from the beginning of the new workflow.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setWorkflowAssignDialogOpen(false);
+              setSelectedWorkflowId("");
+            }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleWorkflowAssignment}
+              disabled={submitting || !selectedWorkflowId}
+            >
+              {submitting ? (
+                "Assigning..."
+              ) : (
+                <>
+                  <GitBranch className="mr-2 h-4 w-4" />
+                  {claim?.workflow ? "Change Workflow" : "Assign Workflow"}
                 </>
               )}
             </Button>

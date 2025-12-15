@@ -279,12 +279,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const updateData: {
         currentStatus: string;
         currentStepId: number | null;
+        currentStepStartedAt?: Date;
         resolvedAt?: Date;
         assignedTo?: number | null;
       } = {
         currentStatus: nextStep?.statusName || claim.currentStatus,
         currentStepId: nextStep?.id || null,
       };
+
+      // Track when step started for SLA calculation
+      if (nextStep && nextStep.id !== claim.currentStepId) {
+        updateData.currentStepStartedAt = new Date();
+      }
 
       // If next step is END type, mark as resolved
       if (nextStep?.stepType === "END") {
@@ -390,14 +396,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Claim not found", "CLAIM_NOT_FOUND", 404);
     }
 
-    // Check if claim already has a workflow
-    if (claim.workflowId) {
-      return errorResponse(
-        "Claim already has a workflow assigned. Remove it first to assign a new one.",
-        "WORKFLOW_ALREADY_ASSIGNED",
-        400
-      );
-    }
+    // Check if claim already has a different workflow (allow re-assignment)
+    const isWorkflowChange = claim.workflowId && claim.workflowId !== workflowId;
 
     // Get the first step (START type)
     const startStep = workflow.steps[0];
@@ -418,12 +418,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           workflowStepId: startStep.id,
           fromStatus: claim.currentStatus,
           toStatus: startStep.statusName,
-          actionType: "workflow_assigned",
+          actionType: isWorkflowChange ? "workflow_changed" : "workflow_assigned",
           performedBy: user.id,
-          notes: `Workflow "${workflow.name}" assigned to claim`,
+          notes: isWorkflowChange
+            ? `Workflow changed to "${workflow.name}"`
+            : `Workflow "${workflow.name}" assigned to claim`,
           metadata: {
             workflowId: workflow.id,
             workflowName: workflow.name,
+            previousWorkflowId: isWorkflowChange ? claim.workflowId : null,
           },
         },
       });
@@ -434,7 +437,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         data: {
           workflowId: workflow.id,
           currentStepId: startStep.id,
+          currentStepStartedAt: new Date(),
           currentStatus: startStep.statusName,
+          resolvedAt: null, // Reset resolved status when changing workflow
           ...(startStep.autoAssignTo && { assignedTo: startStep.autoAssignTo }),
         },
         include: {
