@@ -8,16 +8,29 @@ import { prisma } from "@/lib/prisma";
 import { successResponse, errorResponse } from "@/lib/api-utils";
 import { checkSlaStatus, escalateClaim } from "@/lib/workflow-notifications";
 
-// Secret key for cron authentication (set in environment variables)
-const CRON_SECRET = process.env.CRON_SECRET || "your-cron-secret-key";
+// Secret key for cron authentication (MUST be set in environment variables)
+const CRON_SECRET = process.env.CRON_SECRET;
+
+// Validate CRON_SECRET is configured
+function validateCronSecret(authHeader: string | null): boolean {
+  if (!CRON_SECRET) {
+    console.error("CRON_SECRET environment variable is not configured");
+    return false;
+  }
+  return authHeader === `Bearer ${CRON_SECRET}`;
+}
 
 // GET /api/cron/sla-check - Check all active claims for SLA warnings/breaches
 export async function GET(request: NextRequest) {
   try {
     // Verify cron secret for security
     const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${CRON_SECRET}`) {
-      return errorResponse("Unauthorized", "UNAUTHORIZED", 401);
+    if (!validateCronSecret(authHeader)) {
+      return errorResponse(
+        CRON_SECRET ? "Unauthorized" : "CRON_SECRET not configured",
+        "UNAUTHORIZED",
+        401
+      );
     }
 
     const results: {
@@ -180,8 +193,12 @@ export async function POST(request: NextRequest) {
   try {
     // Verify cron secret for security
     const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${CRON_SECRET}`) {
-      return errorResponse("Unauthorized", "UNAUTHORIZED", 401);
+    if (!validateCronSecret(authHeader)) {
+      return errorResponse(
+        CRON_SECRET ? "Unauthorized" : "CRON_SECRET not configured",
+        "UNAUTHORIZED",
+        401
+      );
     }
 
     const body = await request.json();

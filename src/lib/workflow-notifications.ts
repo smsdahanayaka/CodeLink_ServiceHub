@@ -4,6 +4,8 @@
 // ===========================================
 
 import { prisma } from "@/lib/prisma";
+import { sendEmailWithLogging, isEmailConfigured } from "@/lib/email-provider";
+import { sendSmsWithLogging, isSmsConfigured } from "@/lib/sms-provider";
 
 type NotificationTriggerEvent = "ON_ENTER" | "ON_EXIT" | "ON_SLA_WARNING" | "ON_SLA_BREACH";
 
@@ -83,10 +85,28 @@ export async function triggerStepNotifications(
         try {
           switch (template.type) {
             case "SMS":
-              await sendSmsNotification(tenantId, template.id, recipient.to, message);
+              if (isSmsConfigured()) {
+                await sendSmsWithLogging(tenantId, template.id, {
+                  to: recipient.to,
+                  message,
+                });
+              } else {
+                // Queue SMS for later when provider is configured
+                await queueSmsNotification(tenantId, template.id, recipient.to, message);
+              }
               break;
             case "EMAIL":
-              await sendEmailNotification(tenantId, template.id, recipient.to, subject || "Notification", message);
+              if (isEmailConfigured()) {
+                await sendEmailWithLogging(tenantId, template.id, {
+                  to: recipient.to,
+                  subject: subject || "Notification",
+                  html: message,
+                  text: message.replace(/<[^>]*>/g, ""), // Strip HTML for plain text
+                });
+              } else {
+                // Queue email for later when provider is configured
+                await queueEmailNotification(tenantId, template.id, recipient.to, subject || "Notification", message);
+              }
               break;
             case "IN_APP":
               if (recipient.userId) {
@@ -244,8 +264,8 @@ function substituteVariables(template: string, variables: Record<string, string>
   return result;
 }
 
-// Send SMS notification
-async function sendSmsNotification(
+// Queue SMS notification (when provider not configured)
+async function queueSmsNotification(
   tenantId: number,
   templateId: number,
   phoneNumber: string,
@@ -258,18 +278,15 @@ async function sendSmsNotification(
       phoneNumber,
       message,
       status: "PENDING",
-      // In production, you would integrate with an SMS provider here
-      // provider: "twilio",
-      // providerMessageId: response.sid,
+      provider: "queued",
     },
   });
 
-  // TODO: Integrate with actual SMS provider (Twilio, MSG91, etc.)
   console.log(`SMS queued for ${phoneNumber}: ${message.substring(0, 50)}...`);
 }
 
-// Send email notification
-async function sendEmailNotification(
+// Queue email notification (when provider not configured)
+async function queueEmailNotification(
   tenantId: number,
   templateId: number,
   toEmail: string,
@@ -284,13 +301,10 @@ async function sendEmailNotification(
       subject,
       body,
       status: "PENDING",
-      // In production, you would integrate with an email provider here
-      // provider: "sendgrid",
-      // providerMessageId: response.id,
+      provider: "queued",
     },
   });
 
-  // TODO: Integrate with actual email provider (SendGrid, AWS SES, etc.)
   console.log(`Email queued for ${toEmail}: ${subject}`);
 }
 
