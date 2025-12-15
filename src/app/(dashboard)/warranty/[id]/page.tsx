@@ -66,7 +66,7 @@ interface WarrantyCardDetail {
     address: string | null;
     city: string | null;
     state: string | null;
-  };
+  } | null;
   shop: {
     id: number;
     name: string;
@@ -265,42 +265,44 @@ export default function WarrantyCardDetailPage({
           </Card>
 
           {/* Customer Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5" />
-                Customer Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Name</p>
-                  <p className="font-medium">{card.customer.name}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Phone</p>
-                  <p className="font-medium">{card.customer.phone}</p>
-                </div>
-                {card.customer.email && (
+          {card.customer && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Customer Details
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-sm text-muted-foreground">Email</p>
-                    <p className="font-medium">{card.customer.email}</p>
+                    <p className="text-sm text-muted-foreground">Name</p>
+                    <p className="font-medium">{card.customer.name}</p>
                   </div>
-                )}
-                {card.customer.address && (
-                  <div className="col-span-2">
-                    <p className="text-sm text-muted-foreground">Address</p>
-                    <p className="font-medium">
-                      {card.customer.address}
-                      {card.customer.city && `, ${card.customer.city}`}
-                      {card.customer.state && `, ${card.customer.state}`}
-                    </p>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Phone</p>
+                    <p className="font-medium">{card.customer.phone}</p>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                  {card.customer.email && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Email</p>
+                      <p className="font-medium">{card.customer.email}</p>
+                    </div>
+                  )}
+                  {card.customer.address && (
+                    <div className="col-span-2">
+                      <p className="text-sm text-muted-foreground">Address</p>
+                      <p className="font-medium">
+                        {card.customer.address}
+                        {card.customer.city && `, ${card.customer.city}`}
+                        {card.customer.state && `, ${card.customer.state}`}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Claims History */}
           <Card>

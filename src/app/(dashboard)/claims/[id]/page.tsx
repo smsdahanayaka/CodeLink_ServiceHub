@@ -688,12 +688,12 @@ export default function ClaimDetailPage({
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Assign To</Label>
-              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+              <Select value={selectedUserId || "unassigned"} onValueChange={(value) => setSelectedUserId(value === "unassigned" ? "" : value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select user" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Unassigned</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
                   {users.map((user) => (
                     <SelectItem key={user.id} value={user.id.toString()}>
                       {user.firstName} {user.lastName}

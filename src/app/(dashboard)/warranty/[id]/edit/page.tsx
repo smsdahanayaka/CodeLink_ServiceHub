@@ -101,7 +101,7 @@ export default function EditWarrantyCardPage({
           const card = cardData.data;
           setFormData({
             productId: card.product.id.toString(),
-            customerId: card.customer.id.toString(),
+            customerId: card.customer?.id?.toString() || "",
             shopId: card.shop.id.toString(),
             serialNumber: card.serialNumber,
             purchaseDate: card.purchaseDate.split("T")[0],
@@ -146,7 +146,7 @@ export default function EditWarrantyCardPage({
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.productId) newErrors.productId = "Please select a product";
-    if (!formData.customerId) newErrors.customerId = "Please select a customer";
+    // Customer is optional
     if (!formData.shopId) newErrors.shopId = "Please select a shop";
     if (!formData.serialNumber.trim()) newErrors.serialNumber = "Serial number is required";
     if (!formData.purchaseDate) newErrors.purchaseDate = "Purchase date is required";
@@ -166,7 +166,7 @@ export default function EditWarrantyCardPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productId: parseInt(formData.productId),
-          customerId: parseInt(formData.customerId),
+          customerId: formData.customerId ? parseInt(formData.customerId) : null,
           shopId: parseInt(formData.shopId),
           serialNumber: formData.serialNumber.trim(),
           purchaseDate: formData.purchaseDate,
@@ -271,57 +271,53 @@ export default function EditWarrantyCardPage({
               </CardContent>
             </Card>
 
-            {/* Customer & Shop Selection */}
+            {/* Shop & Customer Selection */}
             <Card>
               <CardHeader>
-                <CardTitle>Customer & Shop</CardTitle>
-                <CardDescription>Update customer and shop association</CardDescription>
+                <CardTitle>Shop & Customer</CardTitle>
+                <CardDescription>Shop is required. Customer is optional.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="customerId">Customer *</Label>
-                    <Select
-                      value={formData.customerId}
-                      onValueChange={(value) => handleChange("customerId", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select customer" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {customers.map((customer) => (
-                          <SelectItem key={customer.id} value={customer.id.toString()}>
-                            {customer.name} ({customer.phone})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.customerId && (
-                      <p className="text-sm text-destructive">{errors.customerId}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="shopId">Shop/Dealer *</Label>
-                    <Select
-                      value={formData.shopId}
-                      onValueChange={(value) => handleChange("shopId", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select shop" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {shops.map((shop) => (
-                          <SelectItem key={shop.id} value={shop.id.toString()}>
-                            {shop.name}
-                            {shop.code && ` (${shop.code})`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.shopId && (
-                      <p className="text-sm text-destructive">{errors.shopId}</p>
-                    )}
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shopId">Shop/Dealer *</Label>
+                  <Select
+                    value={formData.shopId}
+                    onValueChange={(value) => handleChange("shopId", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select shop" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {shops.map((shop) => (
+                        <SelectItem key={shop.id} value={shop.id.toString()}>
+                          {shop.name}
+                          {shop.code && ` (${shop.code})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.shopId && (
+                    <p className="text-sm text-destructive">{errors.shopId}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="customerId">Customer (Optional)</Label>
+                  <Select
+                    value={formData.customerId || "none"}
+                    onValueChange={(value) => handleChange("customerId", value === "none" ? "" : value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select customer (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Customer</SelectItem>
+                      {customers.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id.toString()}>
+                          {customer.name} ({customer.phone})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardContent>
             </Card>

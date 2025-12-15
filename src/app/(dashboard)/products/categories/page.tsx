@@ -324,14 +324,14 @@ export default function CategoriesPage() {
               <div className="space-y-2">
                 <Label htmlFor="parentId">Parent Category</Label>
                 <Select
-                  value={formData.parentId}
-                  onValueChange={(value) => handleChange("parentId", value)}
+                  value={formData.parentId || "none"}
+                  onValueChange={(value) => handleChange("parentId", value === "none" ? "" : value)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="None" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {availableParents.map((cat) => (
                       <SelectItem key={cat.id} value={cat.id.toString()}>
                         {cat.name}

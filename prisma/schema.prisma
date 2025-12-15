@@ -292,7 +292,7 @@ model WarrantyCard {
   tenantId              Int
   cardNumber            String   @db.VarChar(100)
   productId             Int
-  customerId            Int
+  customerId            Int?     // Optional - shops/dealers are primary contact
   shopId                Int
   serialNumber          String   @db.VarChar(100)
   purchaseDate          DateTime @db.Date
@@ -311,7 +311,7 @@ model WarrantyCard {
   // Relations
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   product        Product         @relation(fields: [productId], references: [id])
-  customer       Customer        @relation(fields: [customerId], references: [id])
+  customer       Customer?       @relation(fields: [customerId], references: [id])
   shop           Shop            @relation(fields: [shopId], references: [id])
   createdByUser  User?           @relation("CreatedByUser", fields: [createdBy], references: [id])
   warrantyClaims WarrantyClaim[]

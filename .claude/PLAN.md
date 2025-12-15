@@ -1612,6 +1612,14 @@ prisma.$use(async (params, next) => {
 - Claim status workflow tracking
 - Full audit trail with user attribution
 - Search by card number, serial number, or customer phone
+- **Customer is OPTIONAL** - Shops/dealers are the primary contact point
+- Inline customer creation during warranty registration (name + phone required, email optional)
+
+**Technical Decisions:**
+- **Primary Keys**: All tables use auto-increment integer IDs as primary keys
+- **Session Management**: User ID stored as integer in JWT session (no UUID lookup required)
+- **Customer Relationship**: Warranty cards can be created without a customer (customerId is nullable)
+- **Shop-First Model**: Business operates through shops/dealers who interact with customers
 
 ---
 

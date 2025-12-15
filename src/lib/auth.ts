@@ -2,28 +2,32 @@
 // NextAuth.js Configuration
 // ===========================================
 
-import NextAuth, { type DefaultSession } from "next-auth";
+import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { prisma } from "./prisma";
 
+// Custom user type for our application
+interface CustomUser {
+  id: number; // Using auto-increment integer ID
+  email: string;
+  firstName: string;
+  lastName: string;
+  tenantId: number;
+  roleId: number;
+  roleName: string;
+  permissions: string[];
+}
+
 // Extend the default session types
 declare module "next-auth" {
   interface Session {
-    user: {
-      id: string;
-      email: string;
-      firstName: string;
-      lastName: string;
-      tenantId: number;
-      roleId: number;
-      roleName: string;
-      permissions: string[];
-    } & DefaultSession["user"];
+    user: CustomUser;
   }
 
   interface User {
-    id: string;
+    id: string; // NextAuth requires string, we convert in callbacks
+    numericId: number; // Our actual integer ID
     email: string;
     firstName: string;
     lastName: string;
@@ -98,9 +102,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           data: { lastLoginAt: new Date() },
         });
 
-        // Return user data
+        // Return user data (NextAuth requires id as string, we store numericId separately)
         return {
-          id: user.uuid,
+          id: user.id.toString(), // NextAuth requires string
+          numericId: user.id, // Our actual integer ID
           email: user.email,
           firstName: user.firstName || "",
           lastName: user.lastName || "",
@@ -117,7 +122,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // Add user data to JWT token
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
+        token.id = user.numericId; // Store numeric ID in token
         token.email = user.email;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
@@ -132,9 +137,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // Add user data to session
     async session({ session, token }) {
       if (token) {
-        session.user = {
-          ...session.user,
-          id: token.id as string,
+        // Override the session user with our custom fields
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session as any).user = {
+          id: token.id as number, // Use numeric ID directly
           email: token.email as string,
           firstName: token.firstName as string,
           lastName: token.lastName as string,

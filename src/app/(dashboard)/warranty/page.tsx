@@ -26,7 +26,7 @@ interface WarrantyCard {
   invoiceNumber: string | null;
   status: "ACTIVE" | "EXPIRED" | "VOID" | "CLAIMED";
   product: { id: number; name: string; modelNumber: string | null };
-  customer: { id: number; name: string; phone: string };
+  customer: { id: number; name: string; phone: string } | null;
   shop: { id: number; name: string; code: string | null };
   _count: { warrantyClaims: number };
 }
@@ -128,8 +128,14 @@ export default function WarrantyCardsPage() {
       title: "Customer",
       render: (card) => (
         <div>
-          <div className="font-medium">{card.customer.name}</div>
-          <div className="text-xs text-muted-foreground">{card.customer.phone}</div>
+          {card.customer ? (
+            <>
+              <div className="font-medium">{card.customer.name}</div>
+              <div className="text-xs text-muted-foreground">{card.customer.phone}</div>
+            </>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          )}
         </div>
       ),
     },

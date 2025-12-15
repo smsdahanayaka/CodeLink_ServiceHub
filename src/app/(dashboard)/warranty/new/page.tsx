@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save, Search, UserPlus } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout";
@@ -28,6 +28,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
 
 interface Product {
   id: number;
@@ -56,6 +70,16 @@ export default function NewWarrantyCardPage() {
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
+
+  // Inline customer add state
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({
+    name: "",
+    phone: "",
+    email: "",
+  });
 
   const [formData, setFormData] = useState({
     productId: "",
@@ -110,14 +134,58 @@ export default function NewWarrantyCardPage() {
     }
   };
 
+  // Handle new customer field change
+  const handleNewCustomerChange = (field: string, value: string) => {
+    setNewCustomer((prev) => ({ ...prev, [field]: value }));
+    if (errors[`newCustomer.${field}`]) {
+      setErrors((prev) => ({ ...prev, [`newCustomer.${field}`]: "" }));
+    }
+  };
+
+  // Select existing customer
+  const selectCustomer = (customer: Customer) => {
+    setFormData((prev) => ({ ...prev, customerId: customer.id.toString() }));
+    setShowAddCustomer(false);
+    setNewCustomer({ name: "", phone: "", email: "" });
+    setCustomerPopoverOpen(false);
+  };
+
+  // Clear customer selection
+  const clearCustomer = () => {
+    setFormData((prev) => ({ ...prev, customerId: "" }));
+    setNewCustomer({ name: "", phone: "", email: "" });
+    setShowAddCustomer(false);
+  };
+
+  // Filter customers based on search
+  const filteredCustomers = customers.filter(
+    (c) =>
+      c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+      c.phone.includes(customerSearch)
+  );
+
+  // Get selected customer details
+  const selectedCustomer = formData.customerId
+    ? customers.find((c) => c.id === parseInt(formData.customerId))
+    : null;
+
   // Validate form
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.productId) newErrors.productId = "Please select a product";
-    if (!formData.customerId) newErrors.customerId = "Please select a customer";
     if (!formData.shopId) newErrors.shopId = "Please select a shop";
     if (!formData.serialNumber.trim()) newErrors.serialNumber = "Serial number is required";
     if (!formData.purchaseDate) newErrors.purchaseDate = "Purchase date is required";
+
+    // Validate new customer if adding one
+    if (showAddCustomer) {
+      if (!newCustomer.name.trim()) newErrors["newCustomer.name"] = "Customer name is required";
+      if (!newCustomer.phone.trim()) newErrors["newCustomer.phone"] = "Phone number is required";
+      if (newCustomer.email && !/\S+@\S+\.\S+/.test(newCustomer.email)) {
+        newErrors["newCustomer.email"] = "Invalid email address";
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -129,19 +197,32 @@ export default function NewWarrantyCardPage() {
 
     setLoading(true);
     try {
+      const payload: Record<string, unknown> = {
+        productId: parseInt(formData.productId),
+        shopId: parseInt(formData.shopId),
+        serialNumber: formData.serialNumber.trim(),
+        purchaseDate: formData.purchaseDate,
+        invoiceNumber: formData.invoiceNumber || undefined,
+        invoiceAmount: formData.invoiceAmount ? parseFloat(formData.invoiceAmount) : undefined,
+        notes: formData.notes || undefined,
+      };
+
+      // Add customer data
+      if (showAddCustomer && newCustomer.name && newCustomer.phone) {
+        payload.newCustomer = {
+          name: newCustomer.name.trim(),
+          phone: newCustomer.phone.trim(),
+          email: newCustomer.email.trim() || undefined,
+        };
+      } else if (formData.customerId) {
+        payload.customerId = parseInt(formData.customerId);
+      }
+      // If neither, customer will be null (optional)
+
       const res = await fetch("/api/warranty-cards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: parseInt(formData.productId),
-          customerId: parseInt(formData.customerId),
-          shopId: parseInt(formData.shopId),
-          serialNumber: formData.serialNumber.trim(),
-          purchaseDate: formData.purchaseDate,
-          invoiceNumber: formData.invoiceNumber || undefined,
-          invoiceAmount: formData.invoiceAmount ? parseFloat(formData.invoiceAmount) : undefined,
-          notes: formData.notes || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -235,57 +316,193 @@ export default function NewWarrantyCardPage() {
               </CardContent>
             </Card>
 
-            {/* Customer & Shop Selection */}
+            {/* Shop & Customer Selection */}
             <Card>
               <CardHeader>
-                <CardTitle>Customer & Shop</CardTitle>
-                <CardDescription>Link warranty to customer and purchase location</CardDescription>
+                <CardTitle>Shop & Customer</CardTitle>
+                <CardDescription>
+                  Shop is required. Customer is optional - you can search existing customers or add a new one.
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="customerId">Customer *</Label>
-                    <Select
-                      value={formData.customerId}
-                      onValueChange={(value) => handleChange("customerId", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select customer" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {customers.map((customer) => (
-                          <SelectItem key={customer.id} value={customer.id.toString()}>
-                            {customer.name} ({customer.phone})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.customerId && (
-                      <p className="text-sm text-destructive">{errors.customerId}</p>
+                {/* Shop Selection - Required */}
+                <div className="space-y-2">
+                  <Label htmlFor="shopId">Shop/Dealer *</Label>
+                  <Select
+                    value={formData.shopId}
+                    onValueChange={(value) => handleChange("shopId", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select shop" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {shops.map((shop) => (
+                        <SelectItem key={shop.id} value={shop.id.toString()}>
+                          {shop.name}
+                          {shop.code && ` (${shop.code})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.shopId && (
+                    <p className="text-sm text-destructive">{errors.shopId}</p>
+                  )}
+                </div>
+
+                {/* Customer Selection - Optional */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Customer (Optional)</Label>
+                    {!showAddCustomer && !selectedCustomer && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowAddCustomer(true)}
+                      >
+                        <Plus className="mr-1 h-3 w-3" />
+                        Add New
+                      </Button>
                     )}
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="shopId">Shop/Dealer *</Label>
-                    <Select
-                      value={formData.shopId}
-                      onValueChange={(value) => handleChange("shopId", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select shop" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {shops.map((shop) => (
-                          <SelectItem key={shop.id} value={shop.id.toString()}>
-                            {shop.name}
-                            {shop.code && ` (${shop.code})`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.shopId && (
-                      <p className="text-sm text-destructive">{errors.shopId}</p>
-                    )}
-                  </div>
+
+                  {/* Show selected customer */}
+                  {selectedCustomer && !showAddCustomer && (
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
+                      <div>
+                        <p className="font-medium">{selectedCustomer.name}</p>
+                        <p className="text-sm text-muted-foreground">{selectedCustomer.phone}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearCustomer}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Customer search/select */}
+                  {!selectedCustomer && !showAddCustomer && (
+                    <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-start text-muted-foreground font-normal"
+                        >
+                          <Search className="mr-2 h-4 w-4" />
+                          Search existing customer...
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[400px] p-0" align="start">
+                        <Command>
+                          <CommandInput
+                            placeholder="Search by name or phone..."
+                            value={customerSearch}
+                            onValueChange={setCustomerSearch}
+                          />
+                          <CommandList>
+                            <CommandEmpty>
+                              <div className="py-4 text-center">
+                                <p className="text-sm text-muted-foreground mb-2">No customer found</p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setShowAddCustomer(true);
+                                    setCustomerPopoverOpen(false);
+                                  }}
+                                >
+                                  <Plus className="mr-1 h-3 w-3" />
+                                  Add New Customer
+                                </Button>
+                              </div>
+                            </CommandEmpty>
+                            <CommandGroup>
+                              {filteredCustomers.map((customer) => (
+                                <CommandItem
+                                  key={customer.id}
+                                  value={`${customer.name} ${customer.phone}`}
+                                  onSelect={() => selectCustomer(customer)}
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{customer.name}</span>
+                                    <span className="text-sm text-muted-foreground">
+                                      {customer.phone}
+                                      {customer.email && ` | ${customer.email}`}
+                                    </span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  )}
+
+                  {/* Add new customer inline form */}
+                  {showAddCustomer && (
+                    <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary">New Customer</Badge>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShowAddCustomer(false);
+                            setNewCustomer({ name: "", phone: "", email: "" });
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="customerName">Name *</Label>
+                          <Input
+                            id="customerName"
+                            value={newCustomer.name}
+                            onChange={(e) => handleNewCustomerChange("name", e.target.value)}
+                            placeholder="Customer name"
+                          />
+                          {errors["newCustomer.name"] && (
+                            <p className="text-sm text-destructive">{errors["newCustomer.name"]}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="customerPhone">Phone *</Label>
+                          <Input
+                            id="customerPhone"
+                            value={newCustomer.phone}
+                            onChange={(e) => handleNewCustomerChange("phone", e.target.value)}
+                            placeholder="Phone number"
+                          />
+                          {errors["newCustomer.phone"] && (
+                            <p className="text-sm text-destructive">{errors["newCustomer.phone"]}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="customerEmail">Email (Optional)</Label>
+                        <Input
+                          id="customerEmail"
+                          type="email"
+                          value={newCustomer.email}
+                          onChange={(e) => handleNewCustomerChange("email", e.target.value)}
+                          placeholder="Email address"
+                        />
+                        {errors["newCustomer.email"] && (
+                          <p className="text-sm text-destructive">{errors["newCustomer.email"]}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

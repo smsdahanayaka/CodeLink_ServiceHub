@@ -49,7 +49,7 @@ interface WarrantyCard {
     id: number;
     name: string;
     phone: string;
-  };
+  } | null;
   shop: {
     id: number;
     name: string;
@@ -277,9 +277,11 @@ export default function NewClaimPage() {
                                 <p className="text-sm text-muted-foreground">
                                   {card.product.name} - S/N: {card.serialNumber}
                                 </p>
-                                <p className="text-sm text-muted-foreground">
-                                  {card.customer.name} ({card.customer.phone})
-                                </p>
+                                {card.customer && (
+                                  <p className="text-sm text-muted-foreground">
+                                    {card.customer.name} ({card.customer.phone})
+                                  </p>
+                                )}
                               </div>
                               <div className="text-right">
                                 <Badge
@@ -309,9 +311,11 @@ export default function NewClaimPage() {
                         <p className="text-sm text-muted-foreground">
                           S/N: {selectedCard.serialNumber}
                         </p>
-                        <p className="text-sm text-muted-foreground">
-                          Customer: {selectedCard.customer.name}
-                        </p>
+                        {selectedCard.customer && (
+                          <p className="text-sm text-muted-foreground">
+                            Customer: {selectedCard.customer.name}
+                          </p>
+                        )}
                       </div>
                       <Button
                         type="button"
@@ -435,11 +439,13 @@ export default function NewClaimPage() {
                       </p>
                     )}
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Customer</p>
-                    <p className="font-medium">{selectedCard.customer.name}</p>
-                    <p className="text-sm text-muted-foreground">{selectedCard.customer.phone}</p>
-                  </div>
+                  {selectedCard.customer && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Customer</p>
+                      <p className="font-medium">{selectedCard.customer.name}</p>
+                      <p className="text-sm text-muted-foreground">{selectedCard.customer.phone}</p>
+                    </div>
+                  )}
                   <div>
                     <p className="text-sm text-muted-foreground">Shop</p>
                     <p className="font-medium">{selectedCard.shop.name}</p>

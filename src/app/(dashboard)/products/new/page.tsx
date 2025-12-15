@@ -179,14 +179,14 @@ export default function NewProductPage() {
               <div className="space-y-2">
                 <Label htmlFor="categoryId">Category</Label>
                 <Select
-                  value={formData.categoryId}
-                  onValueChange={(value) => handleChange("categoryId", value)}
+                  value={formData.categoryId || "none"}
+                  onValueChange={(value) => handleChange("categoryId", value === "none" ? "" : value)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No Category</SelectItem>
+                    <SelectItem value="none">No Category</SelectItem>
                     {categories.map((category) => (
                       <SelectItem key={category.id} value={category.id.toString()}>
                         {category.name}

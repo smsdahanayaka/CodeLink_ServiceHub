@@ -145,3 +145,7 @@ Next Steps to Run
   | Password     | admin123                |
 
   The project builds successfully and is ready for Phase 2 development (User & Role Management modules).
+
+  npx prisma db push
+  npx prisma migrate dev --name make-customer-optional
+  npm run dev

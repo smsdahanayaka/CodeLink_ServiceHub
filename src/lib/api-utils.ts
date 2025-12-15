@@ -25,10 +25,9 @@ export interface ApiResponse<T = unknown> {
   };
 }
 
-// Extended user type with numeric ID
+// Authenticated user type - uses integer ID directly
 export interface AuthenticatedUser {
   id: number;
-  uuid: string;
   email: string;
   firstName: string;
   lastName: string;
@@ -87,26 +86,16 @@ export async function checkPermission(permission: string): Promise<boolean> {
   return user.permissions.includes(permission);
 }
 
-// Require authentication middleware - returns user with numeric ID
+// Require authentication middleware - returns user with integer ID directly from session
 export async function requireAuth(): Promise<AuthenticatedUser> {
   const session = await auth();
   if (!session?.user) {
     throw new Error("Unauthorized");
   }
 
-  // Look up the numeric user ID from the UUID
-  const dbUser = await prisma.user.findUnique({
-    where: { uuid: session.user.id },
-    select: { id: true },
-  });
-
-  if (!dbUser) {
-    throw new Error("Unauthorized");
-  }
-
+  // ID is now stored directly as integer in session
   return {
-    id: dbUser.id,
-    uuid: session.user.id,
+    id: session.user.id,
     email: session.user.email,
     firstName: session.user.firstName,
     lastName: session.user.lastName,

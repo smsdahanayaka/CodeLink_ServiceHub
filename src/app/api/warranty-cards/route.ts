@@ -124,14 +124,6 @@ export async function POST(request: NextRequest) {
       return errorResponse("Product not found", "PRODUCT_NOT_FOUND", 400);
     }
 
-    // Verify customer exists and belongs to tenant
-    const customer = await prisma.customer.findFirst({
-      where: { id: validatedData.customerId, tenantId: user.tenantId },
-    });
-    if (!customer) {
-      return errorResponse("Customer not found", "CUSTOMER_NOT_FOUND", 400);
-    }
-
     // Verify shop exists and belongs to tenant
     const shop = await prisma.shop.findFirst({
       where: { id: validatedData.shopId, tenantId: user.tenantId },
@@ -139,6 +131,34 @@ export async function POST(request: NextRequest) {
     if (!shop) {
       return errorResponse("Shop not found", "SHOP_NOT_FOUND", 400);
     }
+
+    // Handle customer - either existing, new inline, or none
+    let customerId: number | null = null;
+
+    if (validatedData.newCustomer) {
+      // Create new customer inline
+      const newCustomer = await prisma.customer.create({
+        data: {
+          tenantId: user.tenantId,
+          name: validatedData.newCustomer.name,
+          phone: validatedData.newCustomer.phone,
+          email: validatedData.newCustomer.email || null,
+          shopId: validatedData.shopId, // Link to the same shop
+          country: "India",
+        },
+      });
+      customerId = newCustomer.id;
+    } else if (validatedData.customerId) {
+      // Verify existing customer belongs to tenant
+      const customer = await prisma.customer.findFirst({
+        where: { id: validatedData.customerId, tenantId: user.tenantId },
+      });
+      if (!customer) {
+        return errorResponse("Customer not found", "CUSTOMER_NOT_FOUND", 400);
+      }
+      customerId = validatedData.customerId;
+    }
+    // If no customer provided, customerId remains null (customer is optional)
 
     // Check for duplicate serial number
     const existingSerial = await prisma.warrantyCard.findFirst({
@@ -166,7 +186,7 @@ export async function POST(request: NextRequest) {
         tenantId: user.tenantId,
         cardNumber,
         productId: validatedData.productId,
-        customerId: validatedData.customerId,
+        customerId, // Can be null
         shopId: validatedData.shopId,
         serialNumber: validatedData.serialNumber,
         purchaseDate,
@@ -194,6 +214,8 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return errorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
-    return errorResponse("Failed to create warranty card", "SERVER_ERROR", 500);
+    // Return more detailed error info for debugging
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    return errorResponse(`Failed to create warranty card: ${errorMessage}`, "SERVER_ERROR", 500);
   }
 }

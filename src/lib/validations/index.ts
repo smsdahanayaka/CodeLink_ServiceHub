@@ -123,13 +123,19 @@ export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 
 export const createWarrantyCardSchema = z.object({
   productId: z.number().min(1, "Please select a product"),
-  customerId: z.number().min(1, "Please select a customer"),
+  customerId: z.number().nullable().optional(), // Optional - shops are primary contact
   shopId: z.number().min(1, "Please select a shop"),
   serialNumber: z.string().min(1, "Serial number is required"),
   purchaseDate: z.string().min(1, "Purchase date is required"),
   invoiceNumber: z.string().optional(),
   invoiceAmount: z.number().optional(),
   notes: z.string().optional(),
+  // Inline customer creation (optional)
+  newCustomer: z.object({
+    name: z.string().min(1, "Customer name is required"),
+    phone: z.string().min(1, "Phone number is required"),
+    email: z.string().email("Invalid email").optional().or(z.literal("")),
+  }).optional(),
 });
 
 export const updateWarrantyCardSchema = createWarrantyCardSchema.partial();
