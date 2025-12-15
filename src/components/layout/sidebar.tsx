@@ -87,9 +87,13 @@ const menuItems = [
   },
   {
     title: "Logistics",
-    href: "/logistics",
     icon: Truck,
-    permission: "logistics.view",
+    children: [
+      { title: "Dashboard", href: "/logistics", permission: "logistics.view" },
+      { title: "Collectors", href: "/logistics/collectors", permission: "logistics.view" },
+      { title: "Pickups", href: "/logistics/pickups", permission: "logistics.view" },
+      { title: "Deliveries", href: "/logistics/deliveries", permission: "logistics.view" },
+    ],
   },
   {
     title: "Settings",

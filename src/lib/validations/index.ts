@@ -282,3 +282,99 @@ export const assignWorkflowSchema = z.object({
 });
 
 export type AssignWorkflowInput = z.infer<typeof assignWorkflowSchema>;
+
+// ==================== Logistics - Collector Schemas ====================
+
+export const createCollectorSchema = z.object({
+  name: z.string().min(1, "Collector name is required"),
+  phone: z.string().min(1, "Phone number is required"),
+  email: z.string().email("Please enter a valid email").optional().or(z.literal("")),
+  userId: z.number().nullable().optional(),
+  vehicleNumber: z.string().optional(),
+  vehicleType: z.string().optional(),
+  assignedAreas: z.array(z.string()).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE", "ON_LEAVE"]).default("ACTIVE"),
+});
+
+export const updateCollectorSchema = createCollectorSchema.partial();
+
+export type CreateCollectorInput = z.infer<typeof createCollectorSchema>;
+export type UpdateCollectorInput = z.infer<typeof updateCollectorSchema>;
+
+// ==================== Logistics - Pickup Schemas ====================
+
+export const createPickupSchema = z.object({
+  claimId: z.number().min(1, "Claim is required"),
+  collectorId: z.number().nullable().optional(),
+  fromType: z.enum(["SHOP", "CUSTOMER"]).default("SHOP"),
+  fromShopId: z.number().nullable().optional(),
+  fromAddress: z.string().optional(),
+  toLocation: z.string().default("Service Center"),
+  scheduledDate: z.string().optional(), // ISO date string
+  scheduledTimeSlot: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const updatePickupSchema = z.object({
+  collectorId: z.number().nullable().optional(),
+  fromType: z.enum(["SHOP", "CUSTOMER"]).optional(),
+  fromShopId: z.number().nullable().optional(),
+  fromAddress: z.string().optional(),
+  toLocation: z.string().optional(),
+  scheduledDate: z.string().optional(),
+  scheduledTimeSlot: z.string().optional(),
+  status: z.enum(["PENDING", "ASSIGNED", "IN_TRANSIT", "COMPLETED", "CANCELLED"]).optional(),
+  notes: z.string().optional(),
+});
+
+export const completePickupSchema = z.object({
+  receiverName: z.string().min(1, "Receiver name is required"),
+  notes: z.string().optional(),
+});
+
+export type CreatePickupInput = z.infer<typeof createPickupSchema>;
+export type UpdatePickupInput = z.infer<typeof updatePickupSchema>;
+export type CompletePickupInput = z.infer<typeof completePickupSchema>;
+
+// ==================== Logistics - Delivery Schemas ====================
+
+export const createDeliverySchema = z.object({
+  claimId: z.number().min(1, "Claim is required"),
+  collectorId: z.number().nullable().optional(),
+  fromLocation: z.string().default("Service Center"),
+  toType: z.enum(["SHOP", "CUSTOMER"]).default("SHOP"),
+  toShopId: z.number().nullable().optional(),
+  toAddress: z.string().optional(),
+  scheduledDate: z.string().optional(), // ISO date string
+  scheduledTimeSlot: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const updateDeliverySchema = z.object({
+  collectorId: z.number().nullable().optional(),
+  fromLocation: z.string().optional(),
+  toType: z.enum(["SHOP", "CUSTOMER"]).optional(),
+  toShopId: z.number().nullable().optional(),
+  toAddress: z.string().optional(),
+  scheduledDate: z.string().optional(),
+  scheduledTimeSlot: z.string().optional(),
+  status: z.enum(["PENDING", "ASSIGNED", "IN_TRANSIT", "COMPLETED", "CANCELLED", "FAILED"]).optional(),
+  notes: z.string().optional(),
+});
+
+export const completeDeliverySchema = z.object({
+  recipientName: z.string().min(1, "Recipient name is required"),
+  signatureUrl: z.string().optional(),
+  deliveryProofUrl: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const failDeliverySchema = z.object({
+  failureReason: z.string().min(1, "Failure reason is required"),
+  notes: z.string().optional(),
+});
+
+export type CreateDeliveryInput = z.infer<typeof createDeliverySchema>;
+export type UpdateDeliveryInput = z.infer<typeof updateDeliverySchema>;
+export type CompleteDeliveryInput = z.infer<typeof completeDeliverySchema>;
+export type FailDeliveryInput = z.infer<typeof failDeliverySchema>;
