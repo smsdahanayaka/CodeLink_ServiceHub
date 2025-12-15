@@ -14,7 +14,10 @@
       "Bash(npx prisma:*)",
       "Bash(npm uninstall:*)",
       "Bash(npx tsc:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(dir /s \"C:\\Hype-Projects\\CodeLink_ServiceHub\\src\" /b)",
+      "Bash(dir:*)",
+      "Bash(ls:*)"
     ]
   }
 }
