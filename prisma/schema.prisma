@@ -351,6 +351,9 @@ model WarrantyClaim {
   repairCost       Decimal  @default(0) @db.Decimal(12, 2)
   isWarrantyVoid   Boolean  @default(false)
   voidReason       String?  @db.Text
+  // Due date tracking
+  dueDate          DateTime?
+  dueDateSource    String?  @db.VarChar(50) // "sla", "manual", "priority"
   receivedAt       DateTime?
   resolvedAt       DateTime?
   createdBy        Int?

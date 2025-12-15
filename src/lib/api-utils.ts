@@ -38,9 +38,16 @@ export interface AuthenticatedUser {
 }
 
 // Success response helper
-export function successResponse<T>(data: T, meta?: ApiResponse["meta"]) {
-  const response: ApiResponse<T> = { success: true, data };
+export function successResponse<T>(
+  data: T,
+  meta?: ApiResponse["meta"],
+  extra?: Record<string, unknown>
+) {
+  const response: ApiResponse<T> & Record<string, unknown> = { success: true, data };
   if (meta) response.meta = meta;
+  if (extra) {
+    Object.assign(response, extra);
+  }
   return NextResponse.json(response);
 }
 

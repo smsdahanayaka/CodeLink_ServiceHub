@@ -18,7 +18,10 @@
       "Bash(dir /s \"C:\\Hype-Projects\\CodeLink_ServiceHub\\src\" /b)",
       "Bash(dir:*)",
       "Bash(ls:*)",
-      "Bash(if exist .next rmdir /s /q .next)"
+      "Bash(if exist .next rmdir /s /q .next)",
+      "Bash(cat:*)",
+      "Bash(xargs:*)",
+      "Bash(grep:*)"
     ]
   }
 }

@@ -14,6 +14,7 @@ import {
 import { executeWorkflowStepSchema, assignWorkflowSchema } from "@/lib/validations";
 import { ZodError } from "zod";
 import type { WorkflowCondition } from "@/lib/validations";
+import { triggerStepNotifications, escalateClaim } from "@/lib/workflow-notifications";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -331,6 +332,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return updatedClaim;
     });
 
+    // Trigger notifications asynchronously (don't block response)
+    // ON_EXIT for current step
+    triggerStepNotifications(currentStep.id, "ON_EXIT", claim.id, user.tenantId).catch((err) =>
+      console.error("Failed to trigger ON_EXIT notifications:", err)
+    );
+
+    // ON_ENTER for next step
+    if (nextStep) {
+      triggerStepNotifications(nextStep.id, "ON_ENTER", claim.id, user.tenantId).catch((err) =>
+        console.error("Failed to trigger ON_ENTER notifications:", err)
+      );
+    }
+
+    // Handle escalation action
+    if (validatedData.action === "escalate") {
+      escalateClaim(
+        claim.id,
+        user.tenantId,
+        validatedData.notes || "Escalated by user",
+        user.id
+      ).catch((err) => console.error("Failed to escalate claim:", err));
+    }
+
     return successResponse({
       claim: result,
       executedStep: currentStep.name,
@@ -476,5 +500,169 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
     return errorResponse("Failed to assign workflow", "SERVER_ERROR", 500);
+  }
+}
+
+// PATCH /api/workflows/[id]/execute - Rollback to a previous step
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  try {
+    const user = await requireAuth();
+    const { id } = await params;
+    const workflowId = parseInt(id);
+
+    if (isNaN(workflowId)) {
+      return errorResponse("Invalid workflow ID", "INVALID_ID", 400);
+    }
+
+    const body = await request.json();
+    const { claimId, targetStepId, reason } = body;
+
+    if (!claimId || !targetStepId) {
+      return errorResponse("claimId and targetStepId are required", "VALIDATION_ERROR", 400);
+    }
+
+    // Verify workflow belongs to tenant
+    const workflow = await prisma.workflow.findFirst({
+      where: {
+        id: workflowId,
+        tenantId: user.tenantId,
+      },
+      include: {
+        steps: {
+          orderBy: { stepOrder: "asc" },
+        },
+      },
+    });
+
+    if (!workflow) {
+      return errorResponse("Workflow not found", "NOT_FOUND", 404);
+    }
+
+    // Verify claim exists and belongs to tenant
+    const claim = await prisma.warrantyClaim.findFirst({
+      where: {
+        id: claimId,
+        tenantId: user.tenantId,
+        workflowId,
+      },
+      include: {
+        currentStep: true,
+      },
+    });
+
+    if (!claim) {
+      return errorResponse("Claim not found or not on this workflow", "CLAIM_NOT_FOUND", 404);
+    }
+
+    // Verify target step exists and belongs to workflow
+    const targetStep = workflow.steps.find((s) => s.id === targetStepId);
+    if (!targetStep) {
+      return errorResponse("Target step not found in workflow", "STEP_NOT_FOUND", 404);
+    }
+
+    // Check if user has permission to rollback (require escalate or admin permission)
+    if (!user.permissions.includes("claims.escalate") && !user.permissions.includes("admin")) {
+      return errorResponse("You don't have permission to rollback steps", "FORBIDDEN", 403);
+    }
+
+    // Verify target step is before current step (actual rollback)
+    const currentStepIndex = workflow.steps.findIndex((s) => s.id === claim.currentStepId);
+    const targetStepIndex = workflow.steps.findIndex((s) => s.id === targetStepId);
+
+    if (targetStepIndex >= currentStepIndex && claim.currentStepId !== null) {
+      return errorResponse(
+        "Can only rollback to a previous step",
+        "INVALID_ROLLBACK",
+        400
+      );
+    }
+
+    // Cannot rollback from END step if claim is resolved
+    if (claim.resolvedAt && claim.currentStep?.stepType === "END") {
+      return errorResponse(
+        "Cannot rollback a resolved claim. Please reopen the claim first.",
+        "CLAIM_RESOLVED",
+        400
+      );
+    }
+
+    // Perform the rollback in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Record rollback in history
+      await tx.claimHistory.create({
+        data: {
+          claimId: claim.id,
+          workflowStepId: claim.currentStepId,
+          fromStatus: claim.currentStatus,
+          toStatus: targetStep.statusName,
+          actionType: "rollback",
+          performedBy: user.id,
+          notes: reason || `Rolled back from "${claim.currentStep?.name || "Unknown"}" to "${targetStep.name}"`,
+          metadata: {
+            fromStepId: claim.currentStepId,
+            fromStepName: claim.currentStep?.name,
+            toStepId: targetStep.id,
+            toStepName: targetStep.name,
+            reason,
+          },
+        },
+      });
+
+      // Update claim
+      const updatedClaim = await tx.warrantyClaim.update({
+        where: { id: claim.id },
+        data: {
+          currentStepId: targetStep.id,
+          currentStepStartedAt: new Date(),
+          currentStatus: targetStep.statusName,
+          resolvedAt: null, // Clear resolved if rolling back from END
+          ...(targetStep.autoAssignTo && { assignedTo: targetStep.autoAssignTo }),
+        },
+        include: {
+          workflow: {
+            select: { id: true, name: true },
+          },
+          currentStep: {
+            include: {
+              transitionsFrom: {
+                include: {
+                  toStep: { select: { id: true, name: true, statusName: true } },
+                },
+              },
+            },
+          },
+          warrantyCard: {
+            include: {
+              product: { select: { id: true, name: true } },
+              customer: { select: { id: true, name: true, phone: true } },
+              shop: { select: { id: true, name: true } },
+            },
+          },
+          assignedUser: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+        },
+      });
+
+      return updatedClaim;
+    });
+
+    // Trigger ON_ENTER notification for target step
+    triggerStepNotifications(targetStep.id, "ON_ENTER", claim.id, user.tenantId).catch((err) =>
+      console.error("Failed to trigger ON_ENTER notifications after rollback:", err)
+    );
+
+    return successResponse({
+      claim: result,
+      rolledBackFrom: claim.currentStep?.name || "Unknown",
+      rolledBackTo: targetStep.name,
+      reason,
+    });
+  } catch (error) {
+    console.error("Error rolling back workflow step:", error);
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return errorResponse("Unauthorized", "UNAUTHORIZED", 401);
+    }
+    return errorResponse("Failed to rollback workflow step", "SERVER_ERROR", 500);
   }
 }

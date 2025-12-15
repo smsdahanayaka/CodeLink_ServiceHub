@@ -22,6 +22,7 @@ import {
   Settings,
   LogOut,
   ChevronDown,
+  Inbox,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,12 @@ const menuItems = [
     title: "Dashboard",
     href: "/",
     icon: LayoutDashboard,
+  },
+  {
+    title: "My Tasks",
+    href: "/my-tasks",
+    icon: Inbox,
+    permission: "claims.view_assigned",
   },
   {
     title: "Users & Roles",

@@ -4,6 +4,7 @@
 
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import {
   successResponse,
   errorResponse,
@@ -13,7 +14,9 @@ import {
   calculatePaginationMeta,
 } from "@/lib/api-utils";
 import { createClaimSchema } from "@/lib/validations";
+import type { WorkflowCondition } from "@/lib/validations";
 import { ZodError } from "zod";
+import { triggerStepNotifications } from "@/lib/workflow-notifications";
 
 // Generate unique claim number
 async function generateClaimNumber(tenantId: number): Promise<string> {
@@ -35,6 +38,116 @@ async function generateClaimNumber(tenantId: number): Promise<string> {
 
   const sequence = (count + 1).toString().padStart(5, "0");
   return `${prefix}${year}${month}${sequence}`;
+}
+
+// Helper: Evaluate workflow conditions for auto-trigger
+function evaluateConditions(
+  conditions: WorkflowCondition[] | null | undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: Record<string, any>
+): boolean {
+  if (!conditions || conditions.length === 0) return true;
+
+  let result = true;
+  let currentOperator: "AND" | "OR" = "AND";
+
+  for (const condition of conditions) {
+    const fieldValue = data[condition.field];
+    let conditionResult = false;
+
+    switch (condition.operator) {
+      case "equals":
+        conditionResult = fieldValue === condition.value;
+        break;
+      case "not_equals":
+        conditionResult = fieldValue !== condition.value;
+        break;
+      case "greater_than":
+        conditionResult = Number(fieldValue) > Number(condition.value);
+        break;
+      case "less_than":
+        conditionResult = Number(fieldValue) < Number(condition.value);
+        break;
+      case "contains":
+        conditionResult = String(fieldValue).toLowerCase().includes(String(condition.value).toLowerCase());
+        break;
+      case "not_contains":
+        conditionResult = !String(fieldValue).toLowerCase().includes(String(condition.value).toLowerCase());
+        break;
+      case "in":
+        conditionResult = Array.isArray(condition.value) && condition.value.includes(fieldValue);
+        break;
+      case "not_in":
+        conditionResult = Array.isArray(condition.value) && !condition.value.includes(fieldValue);
+        break;
+      case "is_empty":
+        conditionResult = !fieldValue || fieldValue === "" || (Array.isArray(fieldValue) && fieldValue.length === 0);
+        break;
+      case "is_not_empty":
+        conditionResult = !!fieldValue && fieldValue !== "" && (!Array.isArray(fieldValue) || fieldValue.length > 0);
+        break;
+    }
+
+    if (currentOperator === "AND") {
+      result = result && conditionResult;
+    } else {
+      result = result || conditionResult;
+    }
+
+    currentOperator = condition.logicalOperator || "AND";
+  }
+
+  return result;
+}
+
+// Find the best matching workflow for a claim based on trigger conditions
+async function findMatchingWorkflow(
+  tenantId: number,
+  claimData: {
+    priority: string;
+    issueCategory?: string | null;
+    reportedBy: string;
+    productName?: string;
+    productCategory?: string;
+    shopId?: number;
+  }
+) {
+  // Get all active workflows ordered by: CONDITIONAL first, then AUTO_ON_CLAIM, then default
+  const workflows = await prisma.workflow.findMany({
+    where: {
+      tenantId,
+      isActive: true,
+      triggerType: { in: ["CONDITIONAL", "AUTO_ON_CLAIM"] },
+    },
+    include: {
+      steps: {
+        where: { stepType: "START" },
+        orderBy: { stepOrder: "asc" },
+        take: 1,
+      },
+    },
+    orderBy: [
+      { triggerType: "asc" }, // CONDITIONAL comes before AUTO_ON_CLAIM alphabetically
+      { isDefault: "desc" },
+    ],
+  });
+
+  // First, try to find a CONDITIONAL workflow that matches
+  for (const workflow of workflows) {
+    if (workflow.triggerType === "CONDITIONAL" && workflow.triggerConditions) {
+      const conditions = workflow.triggerConditions as WorkflowCondition[];
+      if (evaluateConditions(conditions, claimData)) {
+        return workflow;
+      }
+    }
+  }
+
+  // If no conditional match, find AUTO_ON_CLAIM workflow (prefer default)
+  const autoWorkflow = workflows.find(
+    (w) => w.triggerType === "AUTO_ON_CLAIM" && w.isDefault
+  ) || workflows.find((w) => w.triggerType === "AUTO_ON_CLAIM");
+
+  return autoWorkflow || null;
 }
 
 // GET /api/claims - List all warranty claims
@@ -194,62 +307,108 @@ export async function POST(request: NextRequest) {
     // Generate claim number
     const claimNumber = await generateClaimNumber(user.tenantId);
 
-    // Get default workflow (if any)
-    const defaultWorkflow = await prisma.workflow.findFirst({
-      where: {
-        tenantId: user.tenantId,
-        isDefault: true,
-        isActive: true,
-      },
-      include: {
-        steps: {
-          where: { stepType: "START" },
-          orderBy: { stepOrder: "asc" },
-          take: 1,
-        },
-      },
-    });
+    // Build claim data for workflow matching
+    const claimMatchData = {
+      priority: validatedData.priority,
+      issueCategory: validatedData.issueCategory,
+      reportedBy: validatedData.reportedBy,
+      productName: warrantyCard.product.name,
+      productCategory: warrantyCard.product.categoryId?.toString(),
+      shopId: warrantyCard.shopId,
+    };
+
+    // Find matching workflow based on conditions
+    const matchedWorkflow = await findMatchingWorkflow(user.tenantId, claimMatchData);
+    const startStep = matchedWorkflow?.steps[0] || null;
 
     // Create claim with initial history entry
-    const newClaim = await prisma.warrantyClaim.create({
-      data: {
-        tenantId: user.tenantId,
-        claimNumber,
-        warrantyCardId: validatedData.warrantyCardId,
-        workflowId: defaultWorkflow?.id || null,
-        currentStepId: defaultWorkflow?.steps[0]?.id || null,
-        issueDescription: validatedData.issueDescription,
-        issueCategory: validatedData.issueCategory || null,
-        priority: validatedData.priority,
-        reportedBy: validatedData.reportedBy,
-        currentStatus: defaultWorkflow?.steps[0]?.statusName || "new",
-        currentLocation: validatedData.reportedBy === "CUSTOMER" ? "CUSTOMER" : "SHOP",
-        createdBy: user.id,
-        claimHistory: {
-          create: {
+    const newClaim = await prisma.$transaction(async (tx) => {
+      const claim = await tx.warrantyClaim.create({
+        data: {
+          tenantId: user.tenantId,
+          claimNumber,
+          warrantyCardId: validatedData.warrantyCardId,
+          workflowId: matchedWorkflow?.id || null,
+          currentStepId: startStep?.id || null,
+          currentStepStartedAt: matchedWorkflow ? new Date() : null,
+          issueDescription: validatedData.issueDescription,
+          issueCategory: validatedData.issueCategory || null,
+          priority: validatedData.priority,
+          reportedBy: validatedData.reportedBy,
+          currentStatus: startStep?.statusName || "new",
+          currentLocation: validatedData.reportedBy === "CUSTOMER" ? "CUSTOMER" : "SHOP",
+          createdBy: user.id,
+          // Auto-assign to user if START step has autoAssignTo
+          assignedTo: startStep?.autoAssignTo || null,
+          claimHistory: {
+            create: {
+              fromStatus: null,
+              toStatus: startStep?.statusName || "new",
+              workflowStepId: startStep?.id || null,
+              actionType: "claim_created",
+              performedBy: user.id,
+              notes: `Claim created. Issue: ${validatedData.issueDescription.substring(0, 100)}`,
+              metadata: matchedWorkflow ? {
+                workflowId: matchedWorkflow.id,
+                workflowName: matchedWorkflow.name,
+                triggerType: matchedWorkflow.triggerType,
+                autoAssigned: true,
+              } as Prisma.InputJsonValue : Prisma.DbNull,
+            },
+          },
+        },
+        include: {
+          warrantyCard: {
+            select: {
+              id: true,
+              cardNumber: true,
+              serialNumber: true,
+              product: { select: { id: true, name: true } },
+              customer: { select: { id: true, name: true, phone: true } },
+              shop: { select: { id: true, name: true } },
+            },
+          },
+          assignedUser: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+          workflow: {
+            select: { id: true, name: true },
+          },
+          currentStep: {
+            select: { id: true, name: true, statusName: true, stepType: true },
+          },
+        },
+      });
+
+      // If workflow was auto-assigned, also record workflow assignment in history
+      if (matchedWorkflow) {
+        await tx.claimHistory.create({
+          data: {
+            claimId: claim.id,
+            workflowStepId: startStep?.id || null,
             fromStatus: null,
-            toStatus: defaultWorkflow?.steps[0]?.statusName || "new",
-            actionType: "CLAIM_CREATED",
+            toStatus: startStep?.statusName || "new",
+            actionType: "workflow_assigned",
             performedBy: user.id,
-            notes: `Claim created. Issue: ${validatedData.issueDescription.substring(0, 100)}`,
+            notes: `Workflow "${matchedWorkflow.name}" auto-assigned based on ${matchedWorkflow.triggerType === "CONDITIONAL" ? "matching conditions" : "default settings"}`,
+            metadata: {
+              workflowId: matchedWorkflow.id,
+              workflowName: matchedWorkflow.name,
+              triggerType: matchedWorkflow.triggerType,
+            },
           },
-        },
-      },
-      include: {
-        warrantyCard: {
-          select: {
-            id: true,
-            cardNumber: true,
-            serialNumber: true,
-            product: { select: { id: true, name: true } },
-            customer: { select: { id: true, name: true, phone: true } },
-          },
-        },
-        assignedUser: {
-          select: { id: true, firstName: true, lastName: true },
-        },
-      },
+        });
+      }
+
+      return claim;
     });
+
+    // Trigger ON_ENTER notifications for the start step (async, don't block response)
+    if (startStep?.id) {
+      triggerStepNotifications(startStep.id, "ON_ENTER", newClaim.id, user.tenantId).catch((err) =>
+        console.error("Failed to trigger step notifications:", err)
+      );
+    }
 
     return successResponse(newClaim);
   } catch (error) {

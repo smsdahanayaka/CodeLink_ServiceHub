@@ -6,11 +6,24 @@ A comprehensive platform for manufacturing and industrial equipment companies to
 
 ## Features
 
+### Core Features
 - **Multi-Tenant Architecture** - Isolated data and configurations per company
 - **Dynamic Workflow Engine** - Companies define their own warranty/service processes
 - **End-to-End Tracking** - Complete visibility from sale to warranty resolution
 - **Role-Based Access Control** - Customizable roles and permissions
-- **Real-time Notifications** - SMS and in-app notifications at every stage
+- **Real-time Notifications** - SMS, Email and in-app notifications at every stage
+
+### Workflow Process Features (Phase 3)
+- **Auto-Workflow Assignment** - Automatically assigns workflows to new claims based on conditions
+- **Conditional Workflow Triggers** - Route claims to different workflows based on priority, category, product type
+- **Step Notifications** - Automatic SMS/Email notifications on step entry/exit events
+- **My Tasks Dashboard** - Personal inbox showing claims pending user action with SLA tracking
+- **SLA Monitoring & Breach Detection** - Automated monitoring with warning/breach notifications
+- **Workflow Templates** - Pre-built templates (Standard Repair, Quick Exchange, Reject Flow, etc.)
+- **Step Rollback** - Ability to roll back claims to previous steps with audit trail
+- **Escalation Rules** - Auto-escalate claims to supervisors on SLA breach
+- **Bulk Processing** - Process multiple claims through workflow steps simultaneously
+- **Claim Due Date Tracking** - Overall deadline tracking per claim based on SLA or priority
 
 ## Tech Stack
 
@@ -567,6 +580,192 @@ Before activating, ensure your workflow has:
 | Yes/No decision | 2 from decision step |
 | Multiple outcomes | 1 per outcome |
 | Parallel paths | Multiple incoming to merge point |
+
+---
+
+---
+
+## Phase 3 API Reference
+
+### Workflow Execution APIs
+
+#### Execute Workflow Step
+```
+POST /api/workflows/[id]/execute
+```
+Execute/complete a workflow step for a claim.
+
+**Request Body:**
+```json
+{
+  "claimId": 123,
+  "stepId": 456,
+  "action": "complete", // complete, skip, reject, escalate
+  "transitionId": 789, // required for USER_CHOICE transitions
+  "formData": { "field": "value" },
+  "notes": "Processing notes"
+}
+```
+
+#### Rollback Workflow Step
+```
+PATCH /api/workflows/[id]/execute
+```
+Roll back a claim to a previous step.
+
+**Request Body:**
+```json
+{
+  "claimId": 123,
+  "targetStepId": 456,
+  "reason": "Needs re-inspection"
+}
+```
+
+### My Tasks API
+
+#### Get My Tasks
+```
+GET /api/my-tasks
+```
+Get claims assigned to current user with SLA tracking.
+
+**Query Parameters:**
+- `page` - Page number
+- `limit` - Items per page
+- `priority` - Filter by priority (URGENT, HIGH, MEDIUM, LOW)
+- `excludeResolved` - Exclude resolved claims
+- `onlyResolved` - Show only resolved claims
+
+**Response includes:**
+- Claims list with workflow/step info
+- Stats: total, pending, slaWarning, slaBreach, completedToday
+
+### Workflow Templates API
+
+#### List Templates
+```
+GET /api/workflow-templates
+```
+Get list of available pre-built workflow templates.
+
+#### Create from Template
+```
+POST /api/workflow-templates
+```
+Create a new workflow from a template.
+
+**Request Body:**
+```json
+{
+  "templateId": "standard_repair",
+  "customName": "My Custom Workflow",
+  "setAsDefault": true
+}
+```
+
+**Available Templates:**
+- `standard_repair` - Complete repair process with diagnosis, repair, QC, delivery
+- `quick_exchange` - Fast-track product exchange for urgent cases
+- `reject_flow` - Process for rejecting ineligible claims
+- `parts_waiting` - Extended flow for repairs requiring parts ordering
+- `simple_service` - Basic 3-step service flow for minor issues
+
+### Bulk Processing API
+
+#### Bulk Process Claims
+```
+POST /api/claims/bulk
+```
+Process multiple claims through the same workflow step.
+
+**Request Body:**
+```json
+{
+  "claimIds": [1, 2, 3],
+  "action": "complete",
+  "transitionId": 456,
+  "formData": { "field": "value" },
+  "notes": "Bulk processing"
+}
+```
+
+**Limitations:**
+- Maximum 50 claims per request
+- All claims must be at the same workflow step
+- Does not support conditional transitions (process individually)
+
+#### Bulk Update Claims
+```
+PUT /api/claims/bulk
+```
+Bulk update claim properties.
+
+**Request Body:**
+```json
+{
+  "claimIds": [1, 2, 3],
+  "updates": {
+    "assignedTo": 123,
+    "priority": "HIGH",
+    "currentLocation": "SERVICE_CENTER"
+  },
+  "notes": "Reassigning to service center"
+}
+```
+
+### SLA Monitoring Cron API
+
+#### Check SLA Status
+```
+GET /api/cron/sla-check
+Authorization: Bearer {CRON_SECRET}
+```
+Check all active claims for SLA warnings and breaches. Intended to be called by a scheduled job.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "timestamp": "2025-01-15T10:00:00Z",
+    "results": [
+      {
+        "tenantId": 1,
+        "tenantName": "Demo Company",
+        "warnings": 5,
+        "breaches": 2,
+        "escalated": 2
+      }
+    ],
+    "totals": {
+      "warnings": 5,
+      "breaches": 2,
+      "escalated": 2
+    }
+  }
+}
+```
+
+### Environment Variables for Phase 3
+
+Add these to your `.env` file:
+
+```env
+# Cron job authentication
+CRON_SECRET=your-secure-cron-secret-key
+
+# SMS Provider (optional)
+SMS_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=your-account-sid
+TWILIO_AUTH_TOKEN=your-auth-token
+TWILIO_PHONE_NUMBER=+1234567890
+
+# Email Provider (optional)
+EMAIL_PROVIDER=sendgrid
+SENDGRID_API_KEY=your-api-key
+EMAIL_FROM=noreply@yourcompany.com
+```
 
 ---
 
