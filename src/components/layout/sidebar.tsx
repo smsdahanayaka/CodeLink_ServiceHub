@@ -6,6 +6,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -225,7 +226,8 @@ export function Sidebar({ userPermissions = [] }: SidebarProps) {
         <div className="border-t p-4">
           <Button
             variant="ghost"
-            className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground"
+            className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive"
+            onClick={() => signOut({ callbackUrl: "/login" })}
           >
             <LogOut className="h-5 w-5" />
             <span>Logout</span>

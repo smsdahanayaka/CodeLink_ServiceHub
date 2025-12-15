@@ -87,7 +87,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           select: { id: true, name: true },
         },
         currentStep: {
-          select: { id: true, name: true, statusName: true },
+          select: {
+            id: true,
+            name: true,
+            statusName: true,
+            stepType: true,
+            description: true,
+            slaHours: true,
+            canSkip: true,
+            isOptional: true,
+            formFields: true,
+            transitionsFrom: {
+              select: {
+                id: true,
+                transitionName: true,
+                conditionType: true,
+                toStep: {
+                  select: { id: true, name: true, statusName: true },
+                },
+              },
+            },
+          },
         },
         claimHistory: {
           orderBy: { createdAt: "desc" },

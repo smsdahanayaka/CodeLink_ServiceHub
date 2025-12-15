@@ -4,7 +4,8 @@
 // Header Component
 // ===========================================
 
-import { Bell, Menu, Search, User } from "lucide-react";
+import { signOut } from "next-auth/react";
+import { Bell, LogOut, Menu, Search, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -146,7 +147,11 @@ export function Header({ user, onMenuClick }: HeaderProps) {
             </DropdownMenuItem>
             <DropdownMenuItem>Settings</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">
+            <DropdownMenuItem
+              className="text-destructive cursor-pointer"
+              onClick={() => signOut({ callbackUrl: "/login" })}
+            >
+              <LogOut className="mr-2 h-4 w-4" />
               Logout
             </DropdownMenuItem>
           </DropdownMenuContent>

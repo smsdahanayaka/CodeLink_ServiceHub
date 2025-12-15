@@ -71,15 +71,25 @@ export default function LoginPage() {
         redirect: false,
       });
 
+      console.log("Sign in result:", result);
+
       if (result?.error) {
-        setError(result.error);
+        // Handle specific error types
+        if (result.error === "CredentialsSignin") {
+          setError("Invalid company code, email, or password");
+        } else {
+          setError(result.error);
+        }
         return;
       }
 
-      // Redirect to dashboard on success
-      router.push("/");
-      router.refresh();
-    } catch {
+      if (result?.ok) {
+        // Redirect to dashboard on success
+        router.push("/");
+        router.refresh();
+      }
+    } catch (err) {
+      console.error("Login error:", err);
       setError("An unexpected error occurred. Please try again.");
     }
   }

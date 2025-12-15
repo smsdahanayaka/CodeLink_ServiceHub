@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "SaaS Customer Support & Warranty Claim Management System",
   "private": true,
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

@@ -23,6 +23,10 @@ import {
   MessageSquare,
   History,
   Send,
+  GitBranch,
+  Play,
+  SkipForward,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -57,6 +61,34 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { PageLoading, EmptyState } from "@/components/common";
+
+interface WorkflowTransition {
+  id: number;
+  transitionName: string | null;
+  conditionType: string;
+  toStep: { id: number; name: string; statusName: string };
+}
+
+interface CurrentStep {
+  id: number;
+  name: string;
+  statusName: string;
+  stepType: string;
+  description: string | null;
+  slaHours: number | null;
+  canSkip: boolean;
+  isOptional: boolean;
+  formFields: FormField[] | null;
+  transitionsFrom: WorkflowTransition[];
+}
+
+interface FormField {
+  name: string;
+  label: string;
+  type: string;
+  required: boolean;
+  options?: { label: string; value: string }[];
+}
 
 interface ClaimDetail {
   id: number;
@@ -97,7 +129,7 @@ interface ClaimDetail {
       address: string | null;
       city: string | null;
       state: string | null;
-    };
+    } | null;
     shop: {
       id: number;
       name: string;
@@ -114,7 +146,7 @@ interface ClaimDetail {
   } | null;
   createdByUser: { id: number; firstName: string | null; lastName: string | null } | null;
   workflow: { id: number; name: string } | null;
-  currentStep: { id: number; name: string; statusName: string } | null;
+  currentStep: CurrentStep | null;
   claimHistory: Array<{
     id: number;
     fromStatus: string | null;
@@ -159,6 +191,13 @@ export default function ClaimDetailPage({
   const [assignNotes, setAssignNotes] = useState("");
   const [newNote, setNewNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Workflow execution states
+  const [workflowDialogOpen, setWorkflowDialogOpen] = useState(false);
+  const [workflowAction, setWorkflowAction] = useState<"complete" | "skip">("complete");
+  const [workflowFormData, setWorkflowFormData] = useState<Record<string, unknown>>({});
+  const [selectedTransitionId, setSelectedTransitionId] = useState<number | null>(null);
+  const [workflowNotes, setWorkflowNotes] = useState("");
 
   // Fetch claim and users
   useEffect(() => {
@@ -325,6 +364,170 @@ export default function ClaimDetailPage({
     }
   };
 
+  // Handle workflow step execution
+  const handleWorkflowStep = async () => {
+    if (!claim?.workflow || !claim?.currentStep) return;
+
+    // For USER_CHOICE transitions, a transition must be selected
+    const userChoiceTransitions = claim.currentStep.transitionsFrom.filter(
+      (t) => t.conditionType === "USER_CHOICE"
+    );
+    if (userChoiceTransitions.length > 1 && !selectedTransitionId && workflowAction === "complete") {
+      toast.error("Please select the next step");
+      return;
+    }
+
+    // Validate required form fields
+    if (claim.currentStep.formFields && workflowAction === "complete") {
+      const missingFields = claim.currentStep.formFields
+        .filter((f) => f.required && !workflowFormData[f.name])
+        .map((f) => f.label);
+      if (missingFields.length > 0) {
+        toast.error(`Please fill required fields: ${missingFields.join(", ")}`);
+        return;
+      }
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/workflows/${claim.workflow.id}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          claimId: claim.id,
+          stepId: claim.currentStep.id,
+          action: workflowAction,
+          transitionId: selectedTransitionId || undefined,
+          formData: Object.keys(workflowFormData).length > 0 ? workflowFormData : undefined,
+          notes: workflowNotes || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Step ${workflowAction === "skip" ? "skipped" : "completed"} successfully`);
+        setWorkflowDialogOpen(false);
+        // Reset states
+        setWorkflowFormData({});
+        setSelectedTransitionId(null);
+        setWorkflowNotes("");
+        setWorkflowAction("complete");
+        // Refresh claim data
+        const refreshRes = await fetch(`/api/claims/${id}`);
+        const refreshData = await refreshRes.json();
+        if (refreshData.success) setClaim(refreshData.data);
+      } else {
+        toast.error(data.error?.message || "Failed to execute workflow step");
+      }
+    } catch (error) {
+      console.error("Error executing workflow step:", error);
+      toast.error("Failed to execute workflow step");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Render form field based on type
+  const renderFormField = (field: FormField) => {
+    const value = workflowFormData[field.name] || "";
+
+    switch (field.type) {
+      case "textarea":
+        return (
+          <div key={field.name} className="space-y-2">
+            <Label htmlFor={field.name}>
+              {field.label} {field.required && <span className="text-destructive">*</span>}
+            </Label>
+            <Textarea
+              id={field.name}
+              value={value as string}
+              onChange={(e) => setWorkflowFormData((prev) => ({ ...prev, [field.name]: e.target.value }))}
+              rows={3}
+            />
+          </div>
+        );
+      case "select":
+        return (
+          <div key={field.name} className="space-y-2">
+            <Label htmlFor={field.name}>
+              {field.label} {field.required && <span className="text-destructive">*</span>}
+            </Label>
+            <Select
+              value={value as string}
+              onValueChange={(val) => setWorkflowFormData((prev) => ({ ...prev, [field.name]: val }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+              </SelectTrigger>
+              <SelectContent>
+                {field.options?.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      case "checkbox":
+        return (
+          <div key={field.name} className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id={field.name}
+              checked={value as boolean}
+              onChange={(e) => setWorkflowFormData((prev) => ({ ...prev, [field.name]: e.target.checked }))}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            <Label htmlFor={field.name}>
+              {field.label} {field.required && <span className="text-destructive">*</span>}
+            </Label>
+          </div>
+        );
+      case "number":
+        return (
+          <div key={field.name} className="space-y-2">
+            <Label htmlFor={field.name}>
+              {field.label} {field.required && <span className="text-destructive">*</span>}
+            </Label>
+            <Input
+              id={field.name}
+              type="number"
+              value={value as string}
+              onChange={(e) => setWorkflowFormData((prev) => ({ ...prev, [field.name]: e.target.value }))}
+            />
+          </div>
+        );
+      case "date":
+        return (
+          <div key={field.name} className="space-y-2">
+            <Label htmlFor={field.name}>
+              {field.label} {field.required && <span className="text-destructive">*</span>}
+            </Label>
+            <Input
+              id={field.name}
+              type="date"
+              value={value as string}
+              onChange={(e) => setWorkflowFormData((prev) => ({ ...prev, [field.name]: e.target.value }))}
+            />
+          </div>
+        );
+      default:
+        return (
+          <div key={field.name} className="space-y-2">
+            <Label htmlFor={field.name}>
+              {field.label} {field.required && <span className="text-destructive">*</span>}
+            </Label>
+            <Input
+              id={field.name}
+              value={value as string}
+              onChange={(e) => setWorkflowFormData((prev) => ({ ...prev, [field.name]: e.target.value }))}
+            />
+          </div>
+        );
+    }
+  };
+
   if (loading) return <PageLoading />;
   if (!claim) {
     return (
@@ -383,6 +586,108 @@ export default function ClaimDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Workflow Step Card */}
+          {claim.workflow && claim.currentStep && claim.currentStep.stepType !== "END" && (
+            <Card className="border-primary/50 bg-primary/5">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <GitBranch className="h-5 w-5 text-primary" />
+                    Current Workflow Step
+                  </CardTitle>
+                  <Badge variant="outline" className="text-primary border-primary">
+                    {claim.workflow.name}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* Current Step Info */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h4 className="font-semibold text-base">{claim.currentStep.name}</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Status: <Badge variant="secondary">{claim.currentStep.statusName}</Badge>
+                      </p>
+                      {claim.currentStep.description && (
+                        <p className="text-sm text-muted-foreground mt-2">{claim.currentStep.description}</p>
+                      )}
+                    </div>
+                    {claim.currentStep.slaHours && (
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">SLA</p>
+                        <p className="font-medium">{claim.currentStep.slaHours}h</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Available Transitions */}
+                  {claim.currentStep.transitionsFrom.length > 0 && (
+                    <div className="pt-2 border-t">
+                      <p className="text-xs text-muted-foreground mb-2">Next Steps:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {claim.currentStep.transitionsFrom.map((transition) => (
+                          <div
+                            key={transition.id}
+                            className="flex items-center gap-1 text-sm bg-muted px-2 py-1 rounded"
+                          >
+                            <ChevronRight className="h-3 w-3" />
+                            {transition.transitionName || transition.toStep.name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      onClick={() => {
+                        setWorkflowAction("complete");
+                        setWorkflowDialogOpen(true);
+                      }}
+                      className="flex-1"
+                    >
+                      <Play className="mr-2 h-4 w-4" />
+                      Process Step
+                    </Button>
+                    {claim.currentStep.canSkip && (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setWorkflowAction("skip");
+                          setWorkflowDialogOpen(true);
+                        }}
+                      >
+                        <SkipForward className="mr-2 h-4 w-4" />
+                        Skip
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Workflow Completed Badge */}
+          {claim.workflow && claim.currentStep && claim.currentStep.stepType === "END" && (
+            <Card className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="h-6 w-6 text-green-500" />
+                  <div>
+                    <p className="font-medium text-green-700 dark:text-green-400">
+                      Workflow Completed
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {claim.workflow.name} - Final Step: {claim.currentStep.name}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Claim Status Card */}
           <Card>
             <CardHeader>
@@ -564,35 +869,37 @@ export default function ClaimDetailPage({
           </Card>
 
           {/* Customer Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5" />
-                Customer
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="font-medium">{claim.warrantyCard.customer.name}</p>
-                <p className="text-sm text-muted-foreground">{claim.warrantyCard.customer.phone}</p>
-              </div>
-              {claim.warrantyCard.customer.email && (
+          {claim.warrantyCard.customer && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Customer
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div>
-                  <p className="text-sm text-muted-foreground">Email</p>
-                  <p className="text-sm">{claim.warrantyCard.customer.email}</p>
+                  <p className="font-medium">{claim.warrantyCard.customer.name}</p>
+                  <p className="text-sm text-muted-foreground">{claim.warrantyCard.customer.phone}</p>
                 </div>
-              )}
-              {claim.warrantyCard.customer.address && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Address</p>
-                  <p className="text-sm">
-                    {claim.warrantyCard.customer.address}
-                    {claim.warrantyCard.customer.city && `, ${claim.warrantyCard.customer.city}`}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                {claim.warrantyCard.customer.email && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Email</p>
+                    <p className="text-sm">{claim.warrantyCard.customer.email}</p>
+                  </div>
+                )}
+                {claim.warrantyCard.customer.address && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Address</p>
+                    <p className="text-sm">
+                      {claim.warrantyCard.customer.address}
+                      {claim.warrantyCard.customer.city && `, ${claim.warrantyCard.customer.city}`}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Shop Info */}
           <Card>
@@ -748,6 +1055,152 @@ export default function ClaimDetailPage({
             <Button onClick={handleAddNote} disabled={submitting}>
               <Send className="mr-2 h-4 w-4" />
               {submitting ? "Adding..." : "Add Note"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Workflow Step Execution Dialog */}
+      <Dialog
+        open={workflowDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWorkflowFormData({});
+            setSelectedTransitionId(null);
+            setWorkflowNotes("");
+          }
+          setWorkflowDialogOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {workflowAction === "skip" ? (
+                <>
+                  <SkipForward className="h-5 w-5" />
+                  Skip Step
+                </>
+              ) : (
+                <>
+                  <Play className="h-5 w-5" />
+                  Process Step
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {workflowAction === "skip"
+                ? `Skip "${claim?.currentStep?.name}" and move to the next step`
+                : `Complete "${claim?.currentStep?.name}" and progress the workflow`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Step Info */}
+            {claim?.currentStep && (
+              <div className="p-3 bg-muted rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">{claim.currentStep.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Current Status: {claim.currentStep.statusName}
+                    </p>
+                  </div>
+                  <Badge variant="outline">{claim.currentStep.stepType}</Badge>
+                </div>
+              </div>
+            )}
+
+            {/* Form Fields (only for complete action) */}
+            {workflowAction === "complete" &&
+              claim?.currentStep?.formFields &&
+              claim.currentStep.formFields.length > 0 && (
+                <div className="space-y-4">
+                  <Separator />
+                  <div>
+                    <h4 className="font-medium mb-3">Required Information</h4>
+                    <div className="space-y-4">
+                      {claim.currentStep.formFields.map((field) => renderFormField(field))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            {/* Transition Selection (only for USER_CHOICE with multiple options) */}
+            {workflowAction === "complete" &&
+              claim?.currentStep?.transitionsFrom &&
+              claim.currentStep.transitionsFrom.filter((t) => t.conditionType === "USER_CHOICE")
+                .length > 1 && (
+                <div className="space-y-2">
+                  <Separator />
+                  <Label>Select Next Step</Label>
+                  <div className="space-y-2">
+                    {claim.currentStep.transitionsFrom
+                      .filter((t) => t.conditionType === "USER_CHOICE")
+                      .map((transition) => (
+                        <div
+                          key={transition.id}
+                          onClick={() => setSelectedTransitionId(transition.id)}
+                          className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                            selectedTransitionId === transition.id
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-muted"
+                          }`}
+                        >
+                          <div
+                            className={`h-4 w-4 rounded-full border-2 ${
+                              selectedTransitionId === transition.id
+                                ? "border-primary bg-primary"
+                                : "border-muted-foreground"
+                            }`}
+                          />
+                          <div>
+                            <p className="font-medium">
+                              {transition.transitionName || transition.toStep.name}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Status: {transition.toStep.statusName}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <Label>Notes (Optional)</Label>
+              <Textarea
+                value={workflowNotes}
+                onChange={(e) => setWorkflowNotes(e.target.value)}
+                placeholder="Add any notes about this step..."
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWorkflowDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleWorkflowStep}
+              disabled={submitting}
+              variant={workflowAction === "skip" ? "secondary" : "default"}
+            >
+              {submitting ? (
+                "Processing..."
+              ) : workflowAction === "skip" ? (
+                <>
+                  <SkipForward className="mr-2 h-4 w-4" />
+                  Skip Step
+                </>
+              ) : (
+                <>
+                  <Play className="mr-2 h-4 w-4" />
+                  Complete Step
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,5 +1,5 @@
 // ===========================================
-// NextAuth.js Configuration
+// NextAuth.js Configuration (Auth.js v5)
 // ===========================================
 
 import NextAuth from "next-auth";
@@ -9,7 +9,7 @@ import { prisma } from "./prisma";
 
 // Custom user type for our application
 interface CustomUser {
-  id: number; // Using auto-increment integer ID
+  id: number;
   email: string;
   firstName: string;
   lastName: string;
@@ -26,8 +26,8 @@ declare module "next-auth" {
   }
 
   interface User {
-    id: string; // NextAuth requires string, we convert in callbacks
-    numericId: number; // Our actual integer ID
+    id: string;
+    numericId: number;
     email: string;
     firstName: string;
     lastName: string;
@@ -40,6 +40,7 @@ declare module "next-auth" {
 
 // NextAuth configuration
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   providers: [
     Credentials({
       name: "credentials",
@@ -49,80 +50,94 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         subdomain: { label: "Subdomain", type: "text" },
       },
       async authorize(credentials) {
-        // Validate input
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error("Email and password are required");
+        try {
+          // Validate input
+          if (!credentials?.email || !credentials?.password) {
+            console.log("Auth Error: Missing email or password");
+            return null;
+          }
+
+          const email = credentials.email as string;
+          const password = credentials.password as string;
+          const subdomain = (credentials.subdomain as string) || "";
+
+          console.log(`Auth: Attempting login for ${email} with subdomain ${subdomain}`);
+
+          // Find tenant by subdomain
+          const tenant = await prisma.tenant.findUnique({
+            where: { subdomain },
+          });
+
+          if (!tenant) {
+            console.log(`Auth Error: Tenant not found for subdomain ${subdomain}`);
+            return null;
+          }
+
+          if (tenant.status !== "ACTIVE" && tenant.status !== "TRIAL") {
+            console.log(`Auth Error: Tenant ${subdomain} is not active (status: ${tenant.status})`);
+            return null;
+          }
+
+          // Find user in tenant
+          const user = await prisma.user.findFirst({
+            where: {
+              email,
+              tenantId: tenant.id,
+            },
+            include: {
+              role: true,
+            },
+          });
+
+          if (!user) {
+            console.log(`Auth Error: User ${email} not found in tenant ${tenant.id}`);
+            return null;
+          }
+
+          if (user.status !== "ACTIVE") {
+            console.log(`Auth Error: User ${email} is not active (status: ${user.status})`);
+            return null;
+          }
+
+          // Verify password
+          const isValidPassword = await compare(password, user.passwordHash);
+          if (!isValidPassword) {
+            console.log(`Auth Error: Invalid password for ${email}`);
+            return null;
+          }
+
+          // Update last login
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { lastLoginAt: new Date() },
+          });
+
+          console.log(`Auth Success: User ${email} logged in (ID: ${user.id})`);
+
+          // Return user data
+          return {
+            id: user.id.toString(),
+            numericId: user.id,
+            email: user.email,
+            firstName: user.firstName || "",
+            lastName: user.lastName || "",
+            tenantId: user.tenantId,
+            roleId: user.roleId,
+            roleName: user.role.name,
+            permissions: (user.role.permissions as string[]) || [],
+          };
+        } catch (error) {
+          console.error("Auth Error:", error);
+          return null;
         }
-
-        const email = credentials.email as string;
-        const password = credentials.password as string;
-        const subdomain = (credentials.subdomain as string) || "";
-
-        // Find tenant by subdomain
-        const tenant = await prisma.tenant.findUnique({
-          where: { subdomain },
-        });
-
-        if (!tenant) {
-          throw new Error("Invalid company");
-        }
-
-        if (tenant.status !== "ACTIVE" && tenant.status !== "TRIAL") {
-          throw new Error("Company account is not active");
-        }
-
-        // Find user in tenant
-        const user = await prisma.user.findFirst({
-          where: {
-            email,
-            tenantId: tenant.id,
-          },
-          include: {
-            role: true,
-          },
-        });
-
-        if (!user) {
-          throw new Error("Invalid email or password");
-        }
-
-        if (user.status !== "ACTIVE") {
-          throw new Error("Your account is not active");
-        }
-
-        // Verify password
-        const isValidPassword = await compare(password, user.passwordHash);
-        if (!isValidPassword) {
-          throw new Error("Invalid email or password");
-        }
-
-        // Update last login
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { lastLoginAt: new Date() },
-        });
-
-        // Return user data (NextAuth requires id as string, we store numericId separately)
-        return {
-          id: user.id.toString(), // NextAuth requires string
-          numericId: user.id, // Our actual integer ID
-          email: user.email,
-          firstName: user.firstName || "",
-          lastName: user.lastName || "",
-          tenantId: user.tenantId,
-          roleId: user.roleId,
-          roleName: user.role.name,
-          permissions: user.role.permissions as string[],
-        };
       },
     }),
   ],
 
   callbacks: {
-    // Add user data to JWT token
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.numericId; // Store numeric ID in token
+        token.numericId = user.numericId;
         token.email = user.email;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
@@ -134,20 +149,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return token;
     },
 
-    // Add user data to session
     async session({ session, token }) {
       if (token) {
-        // Override the session user with our custom fields
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session as any).user = {
-          id: token.id as number, // Use numeric ID directly
-          email: token.email as string,
-          firstName: token.firstName as string,
-          lastName: token.lastName as string,
-          tenantId: token.tenantId as number,
-          roleId: token.roleId as number,
-          roleName: token.roleName as string,
-          permissions: token.permissions as string[],
+          id: (token.numericId as number) || 0,
+          email: (token.email as string) || "",
+          firstName: (token.firstName as string) || "",
+          lastName: (token.lastName as string) || "",
+          tenantId: (token.tenantId as number) || 0,
+          roleId: (token.roleId as number) || 0,
+          roleName: (token.roleName as string) || "",
+          permissions: (token.permissions as string[]) || [],
         };
       }
       return session;
@@ -163,6 +176,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     strategy: "jwt",
     maxAge: 24 * 60 * 60, // 24 hours
   },
+
+  debug: process.env.NODE_ENV === "development",
 });
 
 // Helper function to check if user has permission

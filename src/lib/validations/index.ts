@@ -154,3 +154,131 @@ export const createClaimSchema = z.object({
 });
 
 export type CreateClaimInput = z.infer<typeof createClaimSchema>;
+
+// ==================== Workflow Schemas ====================
+
+// Form field schema for workflow steps
+export const formFieldSchema = z.object({
+  name: z.string().min(1, "Field name is required"),
+  label: z.string().min(1, "Field label is required"),
+  type: z.enum(["text", "textarea", "number", "select", "multi_select", "date", "file", "checkbox"]),
+  required: z.boolean().default(false),
+  options: z.array(z.object({
+    label: z.string(),
+    value: z.string(),
+  })).optional(),
+  validation: z.object({
+    min: z.number().optional(),
+    max: z.number().optional(),
+    pattern: z.string().optional(),
+    message: z.string().optional(),
+  }).optional(),
+  placeholder: z.string().optional(),
+  defaultValue: z.string().optional(),
+});
+
+export type FormField = z.infer<typeof formFieldSchema>;
+
+// Workflow condition schema
+export const workflowConditionSchema = z.object({
+  field: z.string().min(1, "Field is required"),
+  operator: z.enum(["equals", "not_equals", "greater_than", "less_than", "contains", "not_contains", "in", "not_in", "is_empty", "is_not_empty"]),
+  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
+  logicalOperator: z.enum(["AND", "OR"]).optional(),
+});
+
+export type WorkflowCondition = z.infer<typeof workflowConditionSchema>;
+
+// Step transition schema
+export const stepTransitionSchema = z.object({
+  id: z.number().optional(), // Optional for new transitions
+  toStepId: z.number().min(1, "Target step is required"),
+  transitionName: z.string().optional(),
+  conditionType: z.enum(["ALWAYS", "CONDITIONAL", "USER_CHOICE"]).default("ALWAYS"),
+  conditions: z.array(workflowConditionSchema).optional(),
+  priority: z.number().default(0),
+});
+
+export type StepTransitionInput = z.infer<typeof stepTransitionSchema>;
+
+// Workflow step schema
+export const createWorkflowStepSchema = z.object({
+  name: z.string().min(1, "Step name is required"),
+  description: z.string().optional(),
+  stepOrder: z.number().min(0, "Step order must be non-negative"),
+  stepType: z.enum(["START", "ACTION", "DECISION", "NOTIFICATION", "WAIT", "END"]).default("ACTION"),
+  statusName: z.string().min(1, "Status name is required"),
+  config: z.record(z.string(), z.unknown()).optional(),
+  requiredRoleId: z.number().nullable().optional(),
+  requiredPermissions: z.array(z.string()).optional(),
+  slaHours: z.number().nullable().optional(),
+  slaWarningHours: z.number().nullable().optional(),
+  autoAssignTo: z.number().nullable().optional(),
+  formFields: z.array(formFieldSchema).optional(),
+  isOptional: z.boolean().default(false),
+  canSkip: z.boolean().default(false),
+  // Visual position for workflow builder
+  positionX: z.number().optional(),
+  positionY: z.number().optional(),
+});
+
+export const updateWorkflowStepSchema = createWorkflowStepSchema.partial().extend({
+  id: z.number(),
+});
+
+export type CreateWorkflowStepInput = z.infer<typeof createWorkflowStepSchema>;
+export type UpdateWorkflowStepInput = z.infer<typeof updateWorkflowStepSchema>;
+
+// Create workflow schema
+export const createWorkflowSchema = z.object({
+  name: z.string().min(1, "Workflow name is required"),
+  description: z.string().optional(),
+  triggerType: z.enum(["MANUAL", "AUTO_ON_CLAIM", "CONDITIONAL"]).default("AUTO_ON_CLAIM"),
+  triggerConditions: z.array(workflowConditionSchema).optional(),
+  isDefault: z.boolean().default(false),
+  isActive: z.boolean().default(true),
+});
+
+export const updateWorkflowSchema = createWorkflowSchema.partial();
+
+export type CreateWorkflowInput = z.infer<typeof createWorkflowSchema>;
+export type UpdateWorkflowInput = z.infer<typeof updateWorkflowSchema>;
+
+// Complete workflow with steps schema (for saving entire workflow)
+export const saveWorkflowSchema = z.object({
+  workflow: createWorkflowSchema,
+  steps: z.array(createWorkflowStepSchema.extend({
+    tempId: z.string().optional(), // Temporary ID for new steps
+    transitions: z.array(z.object({
+      toStepTempId: z.string().optional(), // Reference to tempId for new steps
+      toStepId: z.number().optional(), // Reference to existing step ID
+      transitionName: z.string().optional(),
+      conditionType: z.enum(["ALWAYS", "CONDITIONAL", "USER_CHOICE"]).default("ALWAYS"),
+      conditions: z.array(workflowConditionSchema).optional(),
+      priority: z.number().default(0),
+    })).optional(),
+  })),
+});
+
+export type SaveWorkflowInput = z.infer<typeof saveWorkflowSchema>;
+
+// Workflow execution schema (for processing claims)
+export const executeWorkflowStepSchema = z.object({
+  claimId: z.number().min(1, "Claim ID is required"),
+  stepId: z.number().min(1, "Step ID is required"),
+  action: z.enum(["complete", "skip", "reject", "escalate"]).default("complete"),
+  transitionId: z.number().optional(), // For user_choice transitions
+  formData: z.record(z.string(), z.unknown()).optional(), // Dynamic form data
+  notes: z.string().optional(),
+  attachments: z.array(z.string()).optional(),
+});
+
+export type ExecuteWorkflowStepInput = z.infer<typeof executeWorkflowStepSchema>;
+
+// Assign claim to workflow schema
+export const assignWorkflowSchema = z.object({
+  claimId: z.number().min(1, "Claim ID is required"),
+  workflowId: z.number().min(1, "Workflow ID is required"),
+});
+
+export type AssignWorkflowInput = z.infer<typeof assignWorkflowSchema>;
