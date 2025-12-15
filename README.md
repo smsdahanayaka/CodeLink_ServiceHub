@@ -747,25 +747,134 @@ Check all active claims for SLA warnings and breaches. Intended to be called by 
 }
 ```
 
+### Notification Templates API
+
+#### List Templates
+```
+GET /api/notification-templates
+```
+Get all notification templates for the tenant.
+
+**Query Parameters:**
+- `page`, `limit` - Pagination
+- `type` - Filter by type (SMS, EMAIL, IN_APP, PUSH)
+- `triggerEvent` - Filter by trigger event
+- `isActive` - Filter by active status
+
+#### Create Template
+```
+POST /api/notification-templates
+```
+Create a new notification template.
+
+**Request Body:**
+```json
+{
+  "name": "Claim Status Update",
+  "type": "SMS",
+  "bodyTemplate": "Your claim {{claim_number}} status changed to {{current_status}}",
+  "variables": [
+    { "name": "claim_number", "description": "Claim number" },
+    { "name": "current_status", "description": "New status" }
+  ],
+  "triggerEvent": "ON_STEP_COMPLETE",
+  "isActive": true
+}
+```
+
+#### Get Template
+```
+GET /api/notification-templates/[id]
+```
+
+#### Update Template
+```
+PUT /api/notification-templates/[id]
+```
+
+#### Delete Template
+```
+DELETE /api/notification-templates/[id]
+```
+
+**Available Template Variables:**
+- `{{claim_number}}` - Claim number
+- `{{issue_description}}` - Issue description
+- `{{current_status}}` - Current status
+- `{{priority}}` - Claim priority
+- `{{warranty_card_number}}` - Warranty card number
+- `{{serial_number}}` - Product serial number
+- `{{product_name}}` - Product name
+- `{{product_model}}` - Product model
+- `{{customer_name}}` - Customer name
+- `{{customer_phone}}` - Customer phone
+- `{{shop_name}}` - Shop name
+- `{{assigned_to}}` - Assigned user name
+- `{{current_step}}` - Current workflow step
+- `{{workflow_name}}` - Workflow name
+
+### Process Notifications Cron API
+
+#### Process Queued Notifications
+```
+GET /api/cron/process-notifications
+Authorization: Bearer {CRON_SECRET}
+```
+Process all queued SMS and Email notifications. Call this periodically to send pending notifications.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "timestamp": "2025-01-15T10:00:00Z",
+    "email": {
+      "configured": true,
+      "processed": { "attempted": 10, "succeeded": 9, "failed": 1 }
+    },
+    "sms": {
+      "configured": true,
+      "processed": { "attempted": 5, "succeeded": 5, "failed": 0 }
+    }
+  }
+}
+```
+
 ### Environment Variables for Phase 3
 
 Add these to your `.env` file:
 
 ```env
-# Cron job authentication
+# Cron job authentication (REQUIRED for cron jobs)
 CRON_SECRET=your-secure-cron-secret-key
 
-# SMS Provider (optional)
+# SMS Provider - Twilio (optional, but recommended for production)
 SMS_PROVIDER=twilio
 TWILIO_ACCOUNT_SID=your-account-sid
 TWILIO_AUTH_TOKEN=your-auth-token
 TWILIO_PHONE_NUMBER=+1234567890
 
-# Email Provider (optional)
+# Email Provider - SendGrid (optional, but recommended for production)
 EMAIL_PROVIDER=sendgrid
-SENDGRID_API_KEY=your-api-key
-EMAIL_FROM=noreply@yourcompany.com
+SENDGRID_API_KEY=your-sendgrid-api-key
+SENDGRID_FROM_EMAIL=noreply@yourcompany.com
+SENDGRID_FROM_NAME=CodeLink ServiceHub
+
+# Alternative: SMTP Email Provider (if not using SendGrid)
+# EMAIL_PROVIDER=smtp
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-email@gmail.com
+# SMTP_PASSWORD=your-app-password
+# SMTP_FROM_EMAIL=noreply@yourcompany.com
+# SMTP_FROM_NAME=CodeLink ServiceHub
 ```
+
+**Provider Configuration Notes:**
+- **SendGrid**: Recommended for production. Create account at sendgrid.com and generate API key.
+- **Twilio**: For SMS notifications. Create account at twilio.com to get Account SID, Auth Token, and phone number.
+- **SMTP**: Alternative email provider. Requires nodemailer package: `npm install nodemailer`
+- **Without providers**: Notifications are queued in database. Process them later when providers are configured.
 
 ---
 
