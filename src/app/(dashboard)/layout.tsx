@@ -5,8 +5,7 @@
 import { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
+import { DashboardShell } from "@/components/layout/dashboard-shell";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -24,25 +23,16 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      {/* Sidebar */}
-      <Sidebar userPermissions={session.user.permissions} />
-
-      {/* Main Content */}
-      <div className="lg:pl-64">
-        {/* Header */}
-        <Header
-          user={{
-            firstName: session.user.firstName,
-            lastName: session.user.lastName,
-            email: session.user.email,
-            roleName: session.user.roleName,
-          }}
-        />
-
-        {/* Page Content */}
-        <main className="p-6">{children}</main>
-      </div>
-    </div>
+    <DashboardShell
+      userPermissions={session.user.permissions}
+      user={{
+        firstName: session.user.firstName,
+        lastName: session.user.lastName,
+        email: session.user.email,
+        roleName: session.user.roleName,
+      }}
+    >
+      {children}
+    </DashboardShell>
   );
 }

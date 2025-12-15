@@ -109,7 +109,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check permission
-    if (!user.permissions.includes("workflows.update")) {
+    if (!user.permissions.includes("workflows.edit")) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
@@ -231,7 +231,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check permission
-    if (!user.permissions.includes("workflows.update")) {
+    if (!user.permissions.includes("workflows.edit")) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
