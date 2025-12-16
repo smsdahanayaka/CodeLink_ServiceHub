@@ -93,7 +93,7 @@ Welcome to the CodeLink ServiceHub documentation. Choose the guide that fits you
 | **Claims** | Service Requests | Claim Creation, Processing, Sub-Tasks, Step Assignments |
 | **Workflows** | Process Automation | Steps, Transitions, Forms, User Mapping |
 | **My Tasks** | Personal Inbox | Assigned Work, SLA Tracking, Sub-Tasks |
-| **Logistics** | Pickup & Delivery | Collectors, Routes, Tracking |
+| **Logistics** | Collection & Delivery | Collection Trips, Delivery Trips, Collectors, Trip Tracking |
 
 ---
 
@@ -112,16 +112,33 @@ Welcome to the CodeLink ServiceHub documentation. Choose the guide that fits you
 | Completed | Closed successfully | - |
 | Rejected | Claim denied | - |
 
-### Pickup/Delivery Statuses
+### Collection Trip Statuses
 
 | Status | Description |
 |--------|-------------|
-| Pending | Scheduled, no collector |
+| In Progress | Collector adding items |
+| In Transit | On the way to service center |
+| Received | Items received at service center |
+| Cancelled | Trip cancelled |
+
+### Delivery Trip Statuses
+
+| Status | Description |
+|--------|-------------|
+| Pending | Created, awaiting assignment |
 | Assigned | Collector assigned |
-| In Transit | On the way |
-| Completed | Successfully completed |
-| Failed | Delivery failed |
-| Cancelled | Cancelled |
+| In Transit | On the way to destination |
+| Completed | All items delivered |
+| Partial | Some items delivered, some failed |
+| Cancelled | Trip cancelled |
+
+### Delivery Item Statuses
+
+| Status | Description |
+|--------|-------------|
+| Pending | Awaiting delivery |
+| Delivered | Successfully delivered |
+| Failed | Delivery failed (can retry) |
 
 ---
 
@@ -141,6 +158,35 @@ Welcome to the CodeLink ServiceHub documentation. Choose the guide that fits you
 |---------|------|---------|
 | 1.0 | Dec 2024 | Initial documentation |
 | 1.1 | Dec 2024 | Added Claim Workflow Enhancements: Sub-Tasks, Step Assignments, Next User Selection |
+| 1.2 | Dec 2024 | Added Enhanced Logistics System: Trip-Based Collection & Delivery |
+
+---
+
+## New Features (v1.2)
+
+### Enhanced Logistics System
+
+| Feature | Description |
+|---------|-------------|
+| **Collection Trips** | Batch collection from shops/customers with multiple items per trip |
+| **Delivery Trips** | Batch delivery of completed claims grouped by destination |
+| **Auto-Registration** | Auto-create warranty cards when receiving unregistered items |
+| **Mobile-Friendly UI** | Responsive collector interface for on-the-go operations |
+| **Delivery Retry** | Failed deliveries can be retried within the same trip |
+| **Trip Tracking** | Full status tracking for collection and delivery trips |
+
+#### New Pages
+
+| Page | Path | Description |
+|------|------|-------------|
+| My Trips | `/logistics/my-trips` | Collector's active trips dashboard |
+| New Collection | `/logistics/collect` | Start a new collection trip |
+| Collection Detail | `/logistics/collect/[id]` | Manage items in collection |
+| Receive Trip | `/logistics/receive/[id]` | Receive items at service center |
+| Ready for Delivery | `/logistics/ready-for-delivery` | Claims ready to be delivered |
+| Create Delivery | `/logistics/delivery-trips/new` | Create new delivery trip |
+| Delivery Trips | `/logistics/delivery-trips` | All delivery trips list |
+| Execute Delivery | `/logistics/deliver/[id]` | Mark items as delivered |
 
 ---
 

@@ -627,6 +627,181 @@ src/
 
 ---
 
+## Phase 4: Enhanced Logistics System - COMPLETED
+
+**Date:** December 2024
+
+### Overview
+
+The enhanced logistics system introduces a **Trip-Based** approach for collecting and delivering warranty items between shops and the service center. This provides a more user-friendly, real-world workflow compared to individual pickup/delivery records.
+
+### Key Concepts
+
+- **Collection Trip** - A collector's visit to a shop (or customer) to pick up multiple devices
+- **Delivery Trip** - Groups multiple completed claims going to the same destination for efficient batch deliveries
+
+### Completed Tasks:
+
+#### Phase 4.1: Backend Infrastructure
+
+##### Database Models Created
+- **CollectionTrip** - Trip for collecting items from shops/customers
+  - Trip number (CT-YYMMXXXXX)
+  - Source type (SHOP or CUSTOMER)
+  - Status: IN_PROGRESS → IN_TRANSIT → RECEIVED (or CANCELLED)
+  - Collector assignment
+  - Shop or customer details
+
+- **CollectionItem** - Individual items in a collection trip
+  - Serial number, issue description
+  - Optional warranty card link
+  - Status: COLLECTED → RECEIVED → PROCESSED
+
+- **DeliveryTrip** - Trip for delivering completed claims
+  - Trip number (DT-YYMMXXXXX)
+  - Destination type (SHOP or CUSTOMER)
+  - Status: PENDING → ASSIGNED → IN_TRANSIT → COMPLETED/PARTIAL/CANCELLED
+  - Scheduling (date, time slot)
+  - Recipient name and signature capture
+
+- **DeliveryItem** - Individual items in a delivery trip
+  - Claim reference
+  - Status: PENDING → DELIVERED/FAILED
+  - Failure reason for retry
+
+##### Collection Trip APIs
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/logistics/collection-trips` | GET | List all collection trips |
+| `/api/logistics/collection-trips` | POST | Create new collection trip |
+| `/api/logistics/collection-trips/[id]` | GET | Get trip details |
+| `/api/logistics/collection-trips/[id]` | PUT | Update trip |
+| `/api/logistics/collection-trips/[id]` | DELETE | Cancel trip |
+| `/api/logistics/collection-trips/[id]` | PATCH | Status transitions (start_transit, receive) |
+| `/api/logistics/collection-trips/[id]/items` | POST | Add item to trip |
+| `/api/logistics/collection-trips/[id]/items/[itemId]` | DELETE | Remove item |
+| `/api/logistics/collection-trips/[id]/receive` | POST | Receive trip at service center |
+
+##### Delivery Trip APIs
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/logistics/delivery-trips` | GET | List all delivery trips |
+| `/api/logistics/delivery-trips` | POST | Create new delivery trip |
+| `/api/logistics/delivery-trips/[id]` | GET | Get trip details |
+| `/api/logistics/delivery-trips/[id]` | PUT | Update trip |
+| `/api/logistics/delivery-trips/[id]` | DELETE | Cancel trip |
+| `/api/logistics/delivery-trips/[id]` | PATCH | Status transitions (dispatch, complete) |
+| `/api/logistics/delivery-trips/[id]/items/[itemId]` | PATCH | Update item status (delivered, failed, retry) |
+
+##### New Permissions
+- `logistics.create_collection` - Create collection trips
+- `logistics.receive` - Receive trips at service center
+- `logistics.create_delivery` - Create delivery trips
+
+#### Phase 4.2: Service Center UI
+
+| Page | Path | Description |
+|------|------|-------------|
+| Collection Trips List | `/logistics/collection-trips` | View all incoming collection trips |
+| Receive Trip | `/logistics/receive/[id]` | Receive items, auto-register warranty cards |
+| Ready for Delivery | `/logistics/ready-for-delivery` | Select completed claims for delivery |
+| Create Delivery Trip | `/logistics/delivery-trips/new` | Create trips with destination selection |
+| Delivery Trips List | `/logistics/delivery-trips` | Manage all delivery trips |
+| Delivery Trip Detail | `/logistics/delivery-trips/[id]` | View/manage single delivery trip |
+
+#### Phase 4.3: Collector UI (Mobile-Friendly)
+
+| Page | Path | Description |
+|------|------|-------------|
+| My Trips Dashboard | `/logistics/my-trips` | View active collections and deliveries |
+| New Collection | `/logistics/collect` | Start collection from shop or customer |
+| Collection Management | `/logistics/collect/[id]` | Add items, complete collections |
+| Delivery Execution | `/logistics/deliver/[id]` | Mark items delivered/failed, retry |
+
+#### Phase 4.4: Integration & Polish
+
+- Updated logistics dashboard with trip-based stats
+- Quick action links for common operations
+- Badge component variants (success/warning) for status display
+- Fixed TypeScript errors across all components
+
+### Files Created (Phase 4)
+
+```
+src/
+├── app/
+│   ├── (dashboard)/
+│   │   └── logistics/
+│   │       ├── page.tsx                    # Updated dashboard
+│   │       ├── collection-trips/
+│   │       │   └── page.tsx                # Collection trips list
+│   │       ├── collect/
+│   │       │   ├── page.tsx                # New collection
+│   │       │   └── [id]/
+│   │       │       └── page.tsx            # Collection detail
+│   │       ├── receive/
+│   │       │   └── [id]/
+│   │       │       └── page.tsx            # Receive trip
+│   │       ├── ready-for-delivery/
+│   │       │   └── page.tsx                # Ready claims
+│   │       ├── delivery-trips/
+│   │       │   ├── page.tsx                # Delivery trips list
+│   │       │   ├── new/
+│   │       │   │   └── page.tsx            # Create delivery
+│   │       │   └── [id]/
+│   │       │       └── page.tsx            # Delivery detail
+│   │       ├── deliver/
+│   │       │   └── [id]/
+│   │       │       └── page.tsx            # Execute delivery
+│   │       └── my-trips/
+│   │           └── page.tsx                # Collector dashboard
+│   └── api/
+│       └── logistics/
+│           ├── collection-trips/
+│           │   ├── route.ts
+│           │   └── [id]/
+│           │       ├── route.ts
+│           │       ├── items/
+│           │       │   ├── route.ts
+│           │       │   └── [itemId]/
+│           │       │       └── route.ts
+│           │       └── receive/
+│           │           └── route.ts
+│           └── delivery-trips/
+│               ├── route.ts
+│               └── [id]/
+│                   ├── route.ts
+│                   └── items/
+│                       └── [itemId]/
+│                           └── route.ts
+└── components/
+    └── ui/
+        └── badge.tsx                       # Added success/warning variants
+```
+
+### Process Flow
+
+```
+COLLECTION:
+Shop/Customer → Collector creates trip → Adds items → Starts transit
+                                                         ↓
+SERVICE CENTER:                             IN_TRANSIT → Admin receives trip
+                                                         ↓
+                                            Auto-create warranty cards + claims
+                                                         ↓
+REPAIR PROCESS:                             Claims go through workflow
+                                                         ↓
+DELIVERY:                                   Ready claims → Create delivery trip
+                                                         ↓
+                                            Assign collector → Dispatch
+                                                         ↓
+                                            Deliver items → Mark delivered/failed
+                                                         ↓
+COMPLETION:                                 Trip COMPLETED or PARTIAL (retry failed)
+```
+
+---
+
 ## Next Steps (Phase 7)
 
 1. **Reports & Analytics**
@@ -649,5 +824,5 @@ src/
 ---
 
 **Last Updated:** December 2024
-**Current Phase:** Phase 6 Complete - Claim Workflow Enhancement
+**Current Phase:** Phase 4 Complete - Enhanced Logistics System
 **Next Phase:** Phase 7 - Reports & Analytics

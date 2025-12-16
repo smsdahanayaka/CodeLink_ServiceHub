@@ -25,6 +25,16 @@ A comprehensive platform for manufacturing and industrial equipment companies to
 - **Bulk Processing** - Process multiple claims through workflow steps simultaneously
 - **Claim Due Date Tracking** - Overall deadline tracking per claim based on SLA or priority
 
+### Enhanced Logistics Features (Phase 4)
+- **Trip-Based Collection** - Collectors pick up multiple devices from shops/customers in a single trip
+- **Auto-Registration** - Service center receives items and auto-registers warranty cards for unregistered devices
+- **Trip-Based Delivery** - Batch deliveries grouped by destination with retry for failed items
+- **Mobile-Friendly Interface** - Responsive UI optimized for collectors on mobile devices
+- **Collection Trips** - Full lifecycle: IN_PROGRESS → IN_TRANSIT → RECEIVED
+- **Delivery Trips** - Full lifecycle: PENDING → ASSIGNED → IN_TRANSIT → COMPLETED/PARTIAL
+- **Delivery Retry** - Failed items can be retried within the same trip
+- **Ready for Delivery** - Dashboard to batch select completed claims for delivery
+
 ## Tech Stack
 
 - **Frontend:** Next.js 16, React 19, TypeScript
