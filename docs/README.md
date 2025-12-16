@@ -133,13 +133,25 @@ For detailed information, see [Industry Permission System](INDUSTRY_PERMISSION_S
 | Status | Description | Next Actions |
 |--------|-------------|--------------|
 | New | Just created | Review, Assign |
-| Pending Review | Awaiting assessment | Approve, Reject |
+| Received | Item received at service center | Pending Review |
+| Pending Review | Awaiting assessment | Accept, Reject |
 | In Progress | Being worked on | Update, Complete |
 | Under Repair | Repair in progress | Complete repair |
 | Quality Check | Post-repair testing | Pass, Fail |
 | Ready for Delivery | Repair complete | Schedule delivery |
 | Completed | Closed successfully | - |
-| Rejected | Claim denied | - |
+| Rejected | Claim denied | Schedule Return |
+
+### Pickup Statuses
+
+| Status | Description |
+|--------|-------------|
+| Pending | Awaiting collector assignment |
+| Assigned | Collector assigned |
+| In Transit | On the way to service center |
+| Completed | Delivered to service center |
+| Cancelled | Pickup cancelled |
+| Rejected | Item rejected after inspection |
 
 ### Collection Trip Statuses
 
@@ -182,31 +194,29 @@ For detailed information, see [Industry Permission System](INDUSTRY_PERMISSION_S
 | 1.2 | Dec 2024 | Added Enhanced Logistics System: Trip-Based Collection & Delivery |
 | 1.3 | Dec 2024 | Added Phase 5: Claim Finalization & Invoice System |
 | 1.4 | Dec 2024 | Industry-Standard Permission System, Unified Dashboard, Security Improvements |
+| 1.5 | Dec 2024 | Pending Review System, Rejected Items Management, Pickup UX Improvements |
 
 ---
 
-## Latest Updates (v1.4)
+## Latest Updates (v1.5)
 
-### Permission System Overhaul
-- Roles can now have zero permissions (dashboard-only access)
-- Unified dashboard with permission-based sections
-- Sidebar menus filtered by user permissions
-- Removed auto-permission assignment for collectors
+### Pending Review System
+- Completed pickups now appear in Claims page for review
+- Staff can Accept (moves claim to processing) or Reject (with reason)
+- Claims page has new "Pending Review" and "All Claims" tabs
+- New API endpoints for pending review workflow
 
-### Security Improvements
-- Suspended users are automatically logged out within 5 minutes
-- Periodic session validation in JWT callback
-- Users cannot delete their own accounts
+### Rejected Items Management
+- New page at `/logistics/rejected` for rejected pickups
+- Multi-select items and batch create return deliveries
+- Logistics dashboard shows rejected items count
+- Quick action card for rejected items
 
-### Dashboard Changes
-- Default login redirect changed to `/dashboard`
-- All users see one unified dashboard
-- Dashboard sections appear based on user permissions:
-  - My Tasks (for users with `claims.view_assigned`)
-  - My Collections (for users with `logistics.collect`)
-  - My Deliveries (for users with `logistics.deliver`)
-  - Claims Overview (for managers with `claims.view`)
-  - Logistics Overview (for admins with `logistics.manage_*`)
+### Pickup UX Improvements
+- Auto-assign collector when collector creates a pickup
+- Mobile-friendly Schedule Pickup dialog with fixed footer
+- Complete Pickup dialog now shows user selector for receiver
+- Claim creator shown first with "(Claim Creator)" label
 
 ---
 

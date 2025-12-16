@@ -268,11 +268,13 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     "customers.view",
     "products.view",
     "warranty_cards.view",
-    "claims.view",
     "claims.view_assigned",
     "logistics.view",
-    "logistics.manage_pickups",
-    "logistics.manage_deliveries",
-    "logistics.create_collection",
+    "logistics.my_trips",
+    "logistics.collect",
+    "logistics.deliver",
   ],
 } as const;
+
+// System role name for collectors
+export const COLLECTOR_ROLE_NAME = "Collector";

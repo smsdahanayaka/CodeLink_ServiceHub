@@ -15,6 +15,7 @@ import {
   Truck,
   MapPin,
   MoreVertical,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,6 +48,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Collector {
   id: number;
@@ -62,7 +64,7 @@ interface Collector {
   _count: { pickups: number; deliveries: number };
 }
 
-interface SystemUser {
+interface CollectorUser {
   id: number;
   firstName: string | null;
   lastName: string | null;
@@ -81,6 +83,14 @@ interface CollectorFormData {
   status: "ACTIVE" | "INACTIVE" | "ON_LEAVE";
 }
 
+interface NewUserFormData {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+}
+
 const initialFormData: CollectorFormData = {
   userId: null,
   name: "",
@@ -90,6 +100,14 @@ const initialFormData: CollectorFormData = {
   vehicleType: "",
   assignedAreas: [],
   status: "ACTIVE",
+};
+
+const initialNewUserData: NewUserFormData = {
+  email: "",
+  password: "",
+  firstName: "",
+  lastName: "",
+  phone: "",
 };
 
 export default function CollectorsPage() {
@@ -105,9 +123,14 @@ export default function CollectorsPage() {
   const [saving, setSaving] = useState(false);
   const [areasInput, setAreasInput] = useState("");
 
-  // System users for selection
-  const [systemUsers, setSystemUsers] = useState<SystemUser[]>([]);
-  const [availableUsers, setAvailableUsers] = useState<SystemUser[]>([]);
+  // Tab state for selecting existing user or creating new
+  const [activeTab, setActiveTab] = useState<"existing" | "new">("existing");
+  const [newUserData, setNewUserData] = useState<NewUserFormData>(initialNewUserData);
+  const [creatingUser, setCreatingUser] = useState(false);
+
+  // Collector-role users for selection
+  const [collectorUsers, setCollectorUsers] = useState<CollectorUser[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<CollectorUser[]>([]);
 
   // Fetch collectors
   const fetchCollectors = useCallback(async () => {
@@ -125,23 +148,23 @@ export default function CollectorsPage() {
     }
   }, []);
 
-  // Fetch system users
-  const fetchUsers = useCallback(async () => {
+  // Fetch users with Collector role only
+  const fetchCollectorUsers = useCallback(async () => {
     try {
-      const res = await fetch("/api/users?limit=100");
+      const res = await fetch("/api/users/collectors");
       const data = await res.json();
       if (data.success) {
-        setSystemUsers(data.data);
+        setCollectorUsers(data.data);
       }
     } catch (error) {
-      console.error("Error fetching users:", error);
+      console.error("Error fetching collector users:", error);
     }
   }, []);
 
   useEffect(() => {
     fetchCollectors();
-    fetchUsers();
-  }, [fetchCollectors, fetchUsers]);
+    fetchCollectorUsers();
+  }, [fetchCollectors, fetchCollectorUsers]);
 
   // Update available users when collectors or dialog changes
   useEffect(() => {
@@ -150,17 +173,19 @@ export default function CollectorsPage() {
       .filter((c) => c.userId && c.id !== editingId)
       .map((c) => c.userId);
 
-    const available = systemUsers.filter(
+    const available = collectorUsers.filter(
       (user) => !linkedUserIds.includes(user.id)
     );
     setAvailableUsers(available);
-  }, [collectors, systemUsers, editingId]);
+  }, [collectors, collectorUsers, editingId]);
 
   // Open dialog for new collector
   const handleNew = () => {
     setEditingId(null);
     setFormData(initialFormData);
+    setNewUserData(initialNewUserData);
     setAreasInput("");
+    setActiveTab("existing");
     setIsDialogOpen(true);
   };
 
@@ -178,6 +203,7 @@ export default function CollectorsPage() {
       status: collector.status,
     });
     setAreasInput((collector.assignedAreas || []).join(", "));
+    setActiveTab("existing");
     setIsDialogOpen(true);
   };
 
@@ -194,7 +220,7 @@ export default function CollectorsPage() {
       return;
     }
 
-    const selectedUser = systemUsers.find((u) => u.id === parseInt(userId));
+    const selectedUser = collectorUsers.find((u) => u.id === parseInt(userId));
     if (selectedUser) {
       setFormData({
         ...formData,
@@ -206,9 +232,60 @@ export default function CollectorsPage() {
     }
   };
 
+  // Create new user with Collector role
+  const handleCreateNewUser = async () => {
+    if (!newUserData.email || !newUserData.password || !newUserData.firstName) {
+      toast.error("Email, password and first name are required");
+      return;
+    }
+
+    setCreatingUser(true);
+    try {
+      const res = await fetch("/api/users/collectors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUserData),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        toast.success("Collector user created successfully");
+        // Refresh collector users list
+        await fetchCollectorUsers();
+        // Auto-select the new user
+        setFormData({
+          ...formData,
+          userId: data.data.id,
+          name: `${data.data.firstName || ""} ${data.data.lastName || ""}`.trim(),
+          email: data.data.email,
+          phone: data.data.phone || "",
+        });
+        // Switch to existing tab
+        setActiveTab("existing");
+        // Clear new user form
+        setNewUserData(initialNewUserData);
+      } else {
+        toast.error(data.error?.message || "Failed to create user");
+      }
+    } catch (error) {
+      console.error("Error creating user:", error);
+      toast.error("Failed to create user");
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
   // Handle form submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate name and phone
+    if (!formData.name || !formData.phone) {
+      toast.error("Name and phone are required");
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -439,144 +516,286 @@ export default function CollectorsPage() {
             <DialogDescription>
               {editingId
                 ? "Update collector information"
-                : "Select a system user or enter details manually"}
+                : "Select a system user with Collector role or create a new one"}
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-4 pr-2">
-            {/* User Selection */}
-            <div className="space-y-2">
-              <Label htmlFor="userId">Link to System User</Label>
-              <Select
-                value={formData.userId?.toString() || "none"}
-                onValueChange={handleUserSelect}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a user (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">-- Manual entry --</SelectItem>
-                  {availableUsers.map((user) => (
-                    <SelectItem key={user.id} value={user.id.toString()}>
-                      {user.firstName || user.lastName
-                        ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
-                        : user.email}
-                      {" "}({user.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formData.userId && (
-                <p className="text-xs text-green-600">
-                  ✓ Linked to system user - can login to app
-                </p>
-              )}
-            </div>
+          <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+            {!editingId && (
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "existing" | "new")}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="existing">
+                    <User className="mr-2 h-4 w-4" />
+                    Select Existing
+                  </TabsTrigger>
+                  <TabsTrigger value="new">
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Create New User
+                  </TabsTrigger>
+                </TabsList>
 
-            {/* Name & Phone in one row */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="name">Name *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                  placeholder="Collector name"
-                  required
-                  disabled={!!formData.userId}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="phone">Phone *</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) =>
-                    setFormData({ ...formData, phone: e.target.value })
-                  }
-                  placeholder="Phone number"
-                  required
-                />
-              </div>
-            </div>
+                <TabsContent value="existing" className="space-y-4 mt-4">
+                  {/* User Selection */}
+                  <div className="space-y-2">
+                    <Label htmlFor="userId">Select Collector User</Label>
+                    <Select
+                      value={formData.userId?.toString() || "none"}
+                      onValueChange={handleUserSelect}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a user with Collector role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">-- Select a user --</SelectItem>
+                        {availableUsers.length === 0 ? (
+                          <SelectItem value="no-users" disabled>
+                            No available collector users
+                          </SelectItem>
+                        ) : (
+                          availableUsers.map((user) => (
+                            <SelectItem key={user.id} value={user.id.toString()}>
+                              {user.firstName || user.lastName
+                                ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
+                                : user.email}
+                              {" "}({user.email})
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {availableUsers.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No users with Collector role available. Create a new user or assign Collector role to existing users.
+                      </p>
+                    )}
+                    {formData.userId && (
+                      <p className="text-xs text-green-600">
+                        ✓ Linked to system user - can login to app
+                      </p>
+                    )}
+                  </div>
+                </TabsContent>
 
-            {/* Email */}
-            <div className="space-y-1">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-                placeholder="Email address"
-                disabled={!!formData.userId}
-              />
-            </div>
+                <TabsContent value="new" className="space-y-4 mt-4">
+                  <div className="p-3 bg-muted/50 rounded-lg">
+                    <p className="text-sm text-muted-foreground">
+                      Create a new system user with <strong>Collector</strong> role.
+                      They will be able to login and manage their trips.
+                    </p>
+                  </div>
 
-            {/* Vehicle Info in one row */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="vehicleNumber">Vehicle Number</Label>
-                <Input
-                  id="vehicleNumber"
-                  value={formData.vehicleNumber}
-                  onChange={(e) =>
-                    setFormData({ ...formData, vehicleNumber: e.target.value })
-                  }
-                  placeholder="MH12AB1234"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="vehicleType">Vehicle Type</Label>
-                <Input
-                  id="vehicleType"
-                  value={formData.vehicleType}
-                  onChange={(e) =>
-                    setFormData({ ...formData, vehicleType: e.target.value })
-                  }
-                  placeholder="Bike, Van, etc."
-                />
-              </div>
-            </div>
+                  {/* New User Form */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="newFirstName">First Name *</Label>
+                      <Input
+                        id="newFirstName"
+                        value={newUserData.firstName}
+                        onChange={(e) =>
+                          setNewUserData({ ...newUserData, firstName: e.target.value })
+                        }
+                        placeholder="First name"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="newLastName">Last Name</Label>
+                      <Input
+                        id="newLastName"
+                        value={newUserData.lastName}
+                        onChange={(e) =>
+                          setNewUserData({ ...newUserData, lastName: e.target.value })
+                        }
+                        placeholder="Last name"
+                      />
+                    </div>
+                  </div>
 
-            {/* Areas & Status in one row */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="areas">Assigned Areas</Label>
-                <Input
-                  id="areas"
-                  value={areasInput}
-                  onChange={(e) => setAreasInput(e.target.value)}
-                  placeholder="Area1, Area2"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="status">Status</Label>
+                  <div className="space-y-1">
+                    <Label htmlFor="newEmail">Email *</Label>
+                    <Input
+                      id="newEmail"
+                      type="email"
+                      value={newUserData.email}
+                      onChange={(e) =>
+                        setNewUserData({ ...newUserData, email: e.target.value })
+                      }
+                      placeholder="email@example.com"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="newPassword">Password *</Label>
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      value={newUserData.password}
+                      onChange={(e) =>
+                        setNewUserData({ ...newUserData, password: e.target.value })
+                      }
+                      placeholder="Password (min 6 characters)"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="newPhone">Phone</Label>
+                    <Input
+                      id="newPhone"
+                      value={newUserData.phone}
+                      onChange={(e) =>
+                        setNewUserData({ ...newUserData, phone: e.target.value })
+                      }
+                      placeholder="Phone number"
+                    />
+                  </div>
+
+                  <Button
+                    type="button"
+                    onClick={handleCreateNewUser}
+                    disabled={creatingUser}
+                    className="w-full"
+                  >
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    {creatingUser ? "Creating..." : "Create Collector User"}
+                  </Button>
+                </TabsContent>
+              </Tabs>
+            )}
+
+            {/* Show user selection for editing */}
+            {editingId && (
+              <div className="space-y-2">
+                <Label htmlFor="userId">Linked System User</Label>
                 <Select
-                  value={formData.status}
-                  onValueChange={(value) =>
-                    setFormData({
-                      ...formData,
-                      status: value as CollectorFormData["status"],
-                    })
-                  }
+                  value={formData.userId?.toString() || "none"}
+                  onValueChange={handleUserSelect}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Select a user" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ACTIVE">Active</SelectItem>
-                    <SelectItem value="INACTIVE">Inactive</SelectItem>
-                    <SelectItem value="ON_LEAVE">On Leave</SelectItem>
+                    <SelectItem value="none">-- No user linked --</SelectItem>
+                    {availableUsers.map((user) => (
+                      <SelectItem key={user.id} value={user.id.toString()}>
+                        {user.firstName || user.lastName
+                          ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
+                          : user.email}
+                        {" "}({user.email})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-          </form>
+            )}
+
+            {/* Collector Details */}
+            {(formData.userId || editingId) && (
+              <>
+                {/* Name & Phone in one row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="name">Name *</Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, name: e.target.value })
+                      }
+                      placeholder="Collector name"
+                      required
+                      disabled={!!formData.userId}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="phone">Phone *</Label>
+                    <Input
+                      id="phone"
+                      value={formData.phone}
+                      onChange={(e) =>
+                        setFormData({ ...formData, phone: e.target.value })
+                      }
+                      placeholder="Phone number"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div className="space-y-1">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) =>
+                      setFormData({ ...formData, email: e.target.value })
+                    }
+                    placeholder="Email address"
+                    disabled={!!formData.userId}
+                  />
+                </div>
+
+                {/* Vehicle Info in one row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="vehicleNumber">Vehicle Number</Label>
+                    <Input
+                      id="vehicleNumber"
+                      value={formData.vehicleNumber}
+                      onChange={(e) =>
+                        setFormData({ ...formData, vehicleNumber: e.target.value })
+                      }
+                      placeholder="MH12AB1234"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="vehicleType">Vehicle Type</Label>
+                    <Input
+                      id="vehicleType"
+                      value={formData.vehicleType}
+                      onChange={(e) =>
+                        setFormData({ ...formData, vehicleType: e.target.value })
+                      }
+                      placeholder="Bike, Van, etc."
+                    />
+                  </div>
+                </div>
+
+                {/* Areas & Status in one row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="areas">Assigned Areas</Label>
+                    <Input
+                      id="areas"
+                      value={areasInput}
+                      onChange={(e) => setAreasInput(e.target.value)}
+                      placeholder="Area1, Area2"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="status">Status</Label>
+                    <Select
+                      value={formData.status}
+                      onValueChange={(value) =>
+                        setFormData({
+                          ...formData,
+                          status: value as CollectorFormData["status"],
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ACTIVE">Active</SelectItem>
+                        <SelectItem value="INACTIVE">Inactive</SelectItem>
+                        <SelectItem value="ON_LEAVE">On Leave</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
           <DialogFooter className="flex-shrink-0 border-t pt-4 mt-4">
             <Button
@@ -586,9 +805,11 @@ export default function CollectorsPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleSubmit} disabled={saving}>
-              {saving ? "Saving..." : editingId ? "Update" : "Create"}
-            </Button>
+            {(formData.userId || editingId) && (
+              <Button onClick={handleSubmit} disabled={saving}>
+                {saving ? "Saving..." : editingId ? "Update" : "Create Collector"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

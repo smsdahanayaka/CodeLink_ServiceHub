@@ -91,6 +91,7 @@ export const createShopSchema = z.object({
   gstNumber: z.string().optional(),
   status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED"]).default("ACTIVE"),
   notes: z.string().optional(),
+  isVerified: z.boolean().optional(), // For shop verification workflow
 });
 
 export const updateShopSchema = createShopSchema;
@@ -124,7 +125,7 @@ export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 export const createWarrantyCardSchema = z.object({
   productId: z.number().min(1, "Please select a product"),
   customerId: z.number().nullable().optional(), // Optional - shops are primary contact
-  shopId: z.number().min(1, "Please select a shop"),
+  shopId: z.number().nullable().optional(), // Optional if creating new shop
   serialNumber: z.string().min(1, "Serial number is required"),
   purchaseDate: z.string().min(1, "Purchase date is required"),
   invoiceNumber: z.string().optional(),
@@ -135,6 +136,13 @@ export const createWarrantyCardSchema = z.object({
     name: z.string().min(1, "Customer name is required"),
     phone: z.string().min(1, "Phone number is required"),
     email: z.string().email("Invalid email").optional().or(z.literal("")),
+  }).optional(),
+  // New shop creation (when shop not in list)
+  newShop: z.object({
+    name: z.string().min(1, "Shop name is required"),
+    phone: z.string().min(1, "Phone is required"),
+    address: z.string().optional(),
+    city: z.string().optional(),
   }).optional(),
 });
 
@@ -309,7 +317,10 @@ export type UpdateCollectorInput = z.infer<typeof updateCollectorSchema>;
 // ==================== Logistics - Pickup Schemas ====================
 
 export const createPickupSchema = z.object({
-  claimId: z.number().min(1, "Claim is required"),
+  // Can be based on claim OR warranty card
+  claimId: z.number().nullable().optional(),
+  warrantyCardId: z.number().nullable().optional(),
+  // Pickup details
   collectorId: z.number().nullable().optional(),
   fromType: z.enum(["SHOP", "CUSTOMER"]).default("SHOP"),
   fromShopId: z.number().nullable().optional(),
@@ -318,6 +329,13 @@ export const createPickupSchema = z.object({
   scheduledDate: z.string().optional(), // ISO date string
   scheduledTimeSlot: z.string().optional(),
   notes: z.string().optional(),
+  // Optional issue description for creating claim
+  issueDescription: z.string().optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+  // Customer info for pickup
+  customerName: z.string().optional(),
+  customerPhone: z.string().optional(),
+  customerAddress: z.string().optional(),
 });
 
 export const updatePickupSchema = z.object({

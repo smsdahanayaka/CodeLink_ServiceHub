@@ -263,6 +263,7 @@ model Shop {
   contactPhone  String?  @db.VarChar(50)
   gstNumber     String?  @db.VarChar(50)
   status        ShopStatus @default(ACTIVE)
+  isVerified    Boolean  @default(false) // false = pending admin verification
   notes         String?  @db.Text
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -276,6 +277,7 @@ model Shop {
   collectionTrips CollectionTrip[]
   deliveryTrips   DeliveryTrip[]
 
+  @@index([isVerified])
   @@map("shops")
 }
 
@@ -322,7 +324,7 @@ model WarrantyCard {
   cardNumber            String   @db.VarChar(100)
   productId             Int
   customerId            Int?     // Optional - shops/dealers are primary contact
-  shopId                Int
+  shopId                Int      // Required - shop must exist (can be unverified)
   serialNumber          String   @db.VarChar(100)
   purchaseDate          DateTime @db.Date
   warrantyStartDate     DateTime @db.Date
@@ -345,6 +347,7 @@ model WarrantyCard {
   createdByUser   User?            @relation("CreatedByUser", fields: [createdBy], references: [id])
   warrantyClaims  WarrantyClaim[]
   collectionItems CollectionItem[]
+  pickups         Pickup[]
 
   @@unique([tenantId, cardNumber])
   @@unique([tenantId, serialNumber])
@@ -716,6 +719,7 @@ model Pickup {
   id               Int      @id @default(autoincrement())
   tenantId         Int
   claimId          Int
+  warrantyCardId   Int?     // Direct link to warranty card
   collectorId      Int?
   pickupNumber     String?  @db.VarChar(100)
   fromType         PickupFromType @default(SHOP)
@@ -729,16 +733,26 @@ model Pickup {
   receivedAt       DateTime?
   receiverName     String?  @db.VarChar(255)
   notes            String?  @db.Text
+  // Rejection tracking
+  rejectedAt       DateTime?
+  rejectedBy       Int?
+  rejectionReason  String?  @db.Text
+  // Customer info for easy access (especially for CUSTOMER pickup type)
+  customerName     String?  @db.VarChar(255)
+  customerPhone    String?  @db.VarChar(50)
+  customerAddress  String?  @db.Text
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   // Relations
-  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  claim     WarrantyClaim  @relation(fields: [claimId], references: [id])
-  collector Collector?     @relation(fields: [collectorId], references: [id])
-  fromShop  Shop?          @relation(fields: [fromShopId], references: [id])
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  claim        WarrantyClaim  @relation(fields: [claimId], references: [id])
+  warrantyCard WarrantyCard?  @relation(fields: [warrantyCardId], references: [id])
+  collector    Collector?     @relation(fields: [collectorId], references: [id])
+  fromShop     Shop?          @relation(fields: [fromShopId], references: [id])
 
   @@index([tenantId, status])
+  @@index([warrantyCardId])
   @@map("pickups")
 }
 
@@ -753,6 +767,7 @@ enum PickupStatus {
   IN_TRANSIT
   COMPLETED
   CANCELLED
+  REJECTED    // Rejected after inspection - ready for return delivery
 }
 
 // Deliveries (Service Center to Shop/Customer)

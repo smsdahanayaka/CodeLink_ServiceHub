@@ -1,6 +1,6 @@
 # CodeLink ServiceHub - Project Status
 
-## Current Version: 1.4.0
+## Current Version: 1.5.0
 **Last Updated:** December 2024
 
 ---
@@ -63,6 +63,15 @@ CodeLink ServiceHub is a comprehensive warranty management and service center ap
 - [x] Dynamic sidebar based on permissions
 - [x] Zero-permission roles allowed
 - [x] Security improvements (session validation)
+
+### Phase 7: Pending Review & Rejection System ✅
+- [x] Pending Review workflow for completed pickups
+- [x] Accept/Reject actions on pickups
+- [x] Rejected items management page
+- [x] Return delivery creation for rejected items
+- [x] Auto-assign collector on pickup creation
+- [x] Mobile-friendly pickup dialogs with fixed footer
+- [x] Receiver name user selector in Complete Pickup
 
 ---
 
@@ -182,6 +191,9 @@ src/
 | Auto-registration | ✅ | Register items during receive |
 | Mobile interface | ✅ | Responsive collector UI |
 | Status tracking | ✅ | Full trip lifecycle |
+| Pending review | ✅ | Review pickups before claim |
+| Rejected items | ✅ | Track rejected returns |
+| Return delivery | ✅ | Create deliveries for rejections |
 
 ---
 
@@ -226,32 +238,43 @@ src/
 - `GET/POST /api/logistics/collectors` - Collectors
 - `GET/POST /api/logistics/collection-trips` - Collection trips
 - `GET/POST /api/logistics/delivery-trips` - Delivery trips
+- `GET /api/logistics/pickups/pending-review` - Pending review pickups
+- `GET /api/logistics/pickups/rejected` - Rejected pickups
 
 ---
 
-## Recent Changes (v1.4.0)
+## Recent Changes (v1.5.0)
 
-### Permission System
-- Removed `.min(1)` validation from role permissions (allow zero)
-- Updated role create/edit pages to allow empty permissions
-- Removed auto-permission assignment for collectors
+### Pending Review System
+- Added `REJECTED` status to Pickup enum
+- Added rejection tracking fields (rejectedAt, rejectedBy, rejectionReason)
+- New API: `/api/logistics/pickups/pending-review` - completed pickups awaiting review
+- New API: `/api/logistics/pickups/rejected` - rejected pickups for return delivery
+- Added `reject` and `accept` actions to pickup PATCH endpoint
+- Claims page now has "Pending Review" tab for reviewing completed pickups
+- Accept dialog confirms and moves claim to processing
+- Reject dialog with reason, creates rejected pickup
 
-### Dashboard
-- Created `/dashboard` route as main landing page
-- Changed root page redirect from `/warranty` to `/dashboard`
-- Updated sidebar Dashboard link to `/dashboard`
-- Updated logo link to `/dashboard`
+### Rejected Items Management
+- New page: `/logistics/rejected` - lists rejected pickups
+- Multi-select for batch creating return deliveries
+- Create Return Delivery dialog with collector assignment
+- Logistics dashboard shows rejected items count and quick action
 
-### Security
-- Added periodic user status validation (every 5 minutes)
-- Session invalidation for suspended/inactive users
-- Fixed header null check for invalidated sessions
-- Added self-delete prevention in users page
+### Pickup UX Improvements
+- Auto-assign collector when collector creates pickup
+- Mobile-friendly Schedule Pickup dialog with fixed footer
+- Complete Pickup dialog now shows user selector for receiver
+- Claim creator shown first with "(Claim Creator)" label
 
-### UI/UX
-- Delete button disabled for current user
-- Toast message for self-delete attempt
-- Proper permission checks on edit/delete buttons
+---
+
+## Changes in v1.4.0
+
+- Permission System: Zero-permission roles allowed
+- Dashboard: `/dashboard` as main landing page
+- Security: Periodic user status validation
+- UI/UX: Self-delete prevention
 
 ---
 

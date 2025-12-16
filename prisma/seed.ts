@@ -192,6 +192,23 @@ async function main() {
     },
   });
 
+  const collectorRole = await prisma.role.upsert({
+    where: {
+      tenantId_name: {
+        tenantId: demoTenant.id,
+        name: "Collector",
+      },
+    },
+    update: {},
+    create: {
+      tenantId: demoTenant.id,
+      name: "Collector",
+      description: "Handle pickups and deliveries",
+      permissions: DEFAULT_ROLE_PERMISSIONS.collector,
+      isSystem: true,
+    },
+  });
+
   console.log("✅ Roles created");
 
   // Create admin user

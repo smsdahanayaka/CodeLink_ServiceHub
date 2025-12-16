@@ -36,13 +36,34 @@ async function generatePickupNumber(tenantId: number): Promise<string> {
   return `${prefix}${year}${month}${sequence}`;
 }
 
+// Generate unique claim number
+async function generateClaimNumber(tenantId: number): Promise<string> {
+  const prefix = "CLM";
+  const year = new Date().getFullYear().toString().slice(-2);
+  const month = (new Date().getMonth() + 1).toString().padStart(2, "0");
+
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const count = await prisma.warrantyClaim.count({
+    where: {
+      tenantId,
+      createdAt: { gte: startOfMonth },
+    },
+  });
+
+  const sequence = (count + 1).toString().padStart(5, "0");
+  return `${prefix}${year}${month}${sequence}`;
+}
+
 // GET /api/logistics/pickups - List all pickups
 export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth();
 
-    // Check permission
-    if (!user.permissions.includes("logistics.view")) {
+    // Check permission - allow logistics.view or logistics.collect
+    if (!user.permissions.includes("logistics.view") && !user.permissions.includes("logistics.collect")) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
@@ -67,6 +88,8 @@ export async function GET(request: NextRequest) {
         { claim: { claimNumber: { contains: search } } },
         { fromShop: { name: { contains: search } } },
         { collector: { name: { contains: search } } },
+        { customerName: { contains: search } },
+        { customerPhone: { contains: search } },
       ];
     }
 
@@ -103,13 +126,26 @@ export async function GET(request: NextRequest) {
             id: true,
             claimNumber: true,
             currentStatus: true,
+            createdBy: true,
+            createdByUser: { select: { id: true, firstName: true, lastName: true } },
             warrantyCard: {
               select: {
+                id: true,
                 serialNumber: true,
-                product: { select: { name: true } },
-                customer: { select: { name: true, phone: true } },
+                product: { select: { id: true, name: true } },
+                customer: { select: { id: true, name: true, phone: true, address: true } },
+                shop: { select: { id: true, name: true, address: true, phone: true } },
               },
             },
+          },
+        },
+        warrantyCard: {
+          select: {
+            id: true,
+            serialNumber: true,
+            product: { select: { id: true, name: true } },
+            customer: { select: { id: true, name: true, phone: true, address: true } },
+            shop: { select: { id: true, name: true, address: true, phone: true } },
           },
         },
         collector: {
@@ -139,38 +175,109 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth();
 
-    // Check permission
-    if (!user.permissions.includes("logistics.manage_pickups")) {
+    // Check permission - allow logistics.manage_pickups or logistics.collect
+    if (!user.permissions.includes("logistics.manage_pickups") && !user.permissions.includes("logistics.collect")) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
     const body = await request.json();
     const validatedData = createPickupSchema.parse(body);
 
-    // Verify claim exists and belongs to tenant
-    const claim = await prisma.warrantyClaim.findFirst({
-      where: {
-        id: validatedData.claimId,
-        tenantId: user.tenantId,
-      },
-      include: {
-        warrantyCard: {
-          include: {
-            shop: true,
-            customer: true,
+    let claimId = validatedData.claimId;
+    let warrantyCardId = validatedData.warrantyCardId;
+    let shopId = validatedData.fromShopId;
+    let fromAddress = validatedData.fromAddress;
+
+    // Must have either claimId or warrantyCardId
+    if (!claimId && !warrantyCardId) {
+      return errorResponse("Either claim or warranty card is required", "VALIDATION_ERROR", 400);
+    }
+
+    // If we have a claim, use it
+    let claim = null;
+    let warrantyCard = null;
+
+    if (claimId) {
+      claim = await prisma.warrantyClaim.findFirst({
+        where: {
+          id: claimId,
+          tenantId: user.tenantId,
+        },
+        include: {
+          warrantyCard: {
+            include: {
+              shop: true,
+              customer: true,
+              product: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    if (!claim) {
-      return errorResponse("Claim not found", "CLAIM_NOT_FOUND", 400);
+      if (!claim) {
+        return errorResponse("Claim not found", "CLAIM_NOT_FOUND", 400);
+      }
+
+      warrantyCard = claim.warrantyCard;
+      warrantyCardId = warrantyCard.id;
+    } else if (warrantyCardId) {
+      // Find warranty card
+      warrantyCard = await prisma.warrantyCard.findFirst({
+        where: {
+          id: warrantyCardId,
+          tenantId: user.tenantId,
+        },
+        include: {
+          shop: true,
+          customer: true,
+          product: true,
+        },
+      });
+
+      if (!warrantyCard) {
+        return errorResponse("Warranty card not found", "WARRANTY_CARD_NOT_FOUND", 400);
+      }
+
+      // Create a claim for this pickup
+      const claimNumber = await generateClaimNumber(user.tenantId);
+
+      // Find default workflow
+      const defaultWorkflow = await prisma.workflow.findFirst({
+        where: {
+          tenantId: user.tenantId,
+          isDefault: true,
+          isActive: true,
+        },
+        include: {
+          steps: {
+            orderBy: { stepOrder: "asc" },
+            take: 1,
+          },
+        },
+      });
+
+      claim = await prisma.warrantyClaim.create({
+        data: {
+          tenantId: user.tenantId,
+          warrantyCardId: warrantyCardId,
+          claimNumber,
+          issueDescription: validatedData.issueDescription || "Pickup scheduled - Issue to be inspected",
+          priority: validatedData.priority || "MEDIUM",
+          currentStatus: defaultWorkflow?.steps[0]?.statusName || "received",
+          currentStepId: defaultWorkflow?.steps[0]?.id || null,
+          workflowId: defaultWorkflow?.id || null,
+          currentLocation: validatedData.fromType === "SHOP" ? "SHOP" : "CUSTOMER",
+          createdBy: user.id,
+        },
+      });
+
+      claimId = claim.id;
     }
 
     // Check if pickup already exists for this claim
     const existingPickup = await prisma.pickup.findFirst({
       where: {
-        claimId: validatedData.claimId,
+        claimId: claimId!,
         status: { notIn: ["COMPLETED", "CANCELLED"] },
       },
     });
@@ -193,11 +300,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Verify fromShop if provided
-    if (validatedData.fromShopId) {
+    // Determine shop ID
+    if (!shopId && validatedData.fromType === "SHOP" && warrantyCard?.shopId) {
+      shopId = warrantyCard.shopId;
+    }
+
+    // Verify shop if provided
+    if (shopId) {
       const shop = await prisma.shop.findFirst({
         where: {
-          id: validatedData.fromShopId,
+          id: shopId,
           tenantId: user.tenantId,
         },
       });
@@ -210,12 +322,11 @@ export async function POST(request: NextRequest) {
     const pickupNumber = await generatePickupNumber(user.tenantId);
 
     // Determine from address
-    let fromAddress = validatedData.fromAddress;
     if (!fromAddress) {
-      if (validatedData.fromType === "SHOP" && claim.warrantyCard.shop) {
-        fromAddress = claim.warrantyCard.shop.address || undefined;
-      } else if (validatedData.fromType === "CUSTOMER" && claim.warrantyCard.customer) {
-        fromAddress = claim.warrantyCard.customer.address || undefined;
+      if (validatedData.fromType === "SHOP" && warrantyCard?.shop) {
+        fromAddress = warrantyCard.shop.address || undefined;
+      } else if (validatedData.fromType === "CUSTOMER") {
+        fromAddress = validatedData.customerAddress || warrantyCard?.customer?.address || undefined;
       }
     }
 
@@ -223,21 +334,33 @@ export async function POST(request: NextRequest) {
     const pickup = await prisma.pickup.create({
       data: {
         tenantId: user.tenantId,
-        claimId: validatedData.claimId,
+        claimId: claimId!,
+        warrantyCardId: warrantyCardId || null,
         pickupNumber,
         collectorId: validatedData.collectorId || null,
         fromType: validatedData.fromType,
-        fromShopId: validatedData.fromShopId || claim.warrantyCard.shopId,
+        fromShopId: shopId || null,
         fromAddress: fromAddress || null,
         toLocation: validatedData.toLocation,
         scheduledDate: validatedData.scheduledDate ? new Date(validatedData.scheduledDate) : null,
         scheduledTimeSlot: validatedData.scheduledTimeSlot || null,
         status: validatedData.collectorId ? "ASSIGNED" : "PENDING",
         notes: validatedData.notes || null,
+        // Customer info for easy access
+        customerName: validatedData.customerName || warrantyCard?.customer?.name || null,
+        customerPhone: validatedData.customerPhone || warrantyCard?.customer?.phone || null,
+        customerAddress: validatedData.customerAddress || warrantyCard?.customer?.address || null,
       },
       include: {
         claim: {
           select: { id: true, claimNumber: true },
+        },
+        warrantyCard: {
+          select: {
+            id: true,
+            serialNumber: true,
+            product: { select: { id: true, name: true } },
+          },
         },
         collector: {
           select: { id: true, name: true, phone: true },
@@ -249,29 +372,31 @@ export async function POST(request: NextRequest) {
     });
 
     // Update claim location if pickup is scheduled
-    await prisma.warrantyClaim.update({
-      where: { id: validatedData.claimId },
-      data: {
-        currentLocation: validatedData.fromType === "SHOP" ? "SHOP" : "CUSTOMER",
-      },
-    });
-
-    // Record in claim history
-    await prisma.claimHistory.create({
-      data: {
-        claimId: validatedData.claimId,
-        fromStatus: claim.currentStatus,
-        toStatus: claim.currentStatus,
-        actionType: "pickup_scheduled",
-        performedBy: user.id,
-        notes: `Pickup ${pickupNumber} scheduled${validatedData.scheduledDate ? ` for ${validatedData.scheduledDate}` : ""}`,
-        metadata: {
-          pickupId: pickup.id,
-          pickupNumber,
-          collectorId: validatedData.collectorId,
+    if (claim) {
+      await prisma.warrantyClaim.update({
+        where: { id: claimId! },
+        data: {
+          currentLocation: validatedData.fromType === "SHOP" ? "SHOP" : "CUSTOMER",
         },
-      },
-    });
+      });
+
+      // Record in claim history
+      await prisma.claimHistory.create({
+        data: {
+          claimId: claimId!,
+          fromStatus: claim.currentStatus,
+          toStatus: claim.currentStatus,
+          actionType: "pickup_scheduled",
+          performedBy: user.id,
+          notes: `Pickup ${pickupNumber} scheduled${validatedData.scheduledDate ? ` for ${validatedData.scheduledDate}` : ""}`,
+          metadata: {
+            pickupId: pickup.id,
+            pickupNumber,
+            collectorId: validatedData.collectorId,
+          },
+        },
+      });
+    }
 
     return successResponse(pickup);
   } catch (error) {

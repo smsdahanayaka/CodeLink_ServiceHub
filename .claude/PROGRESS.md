@@ -823,6 +823,120 @@ COMPLETION:                                 Trip COMPLETED or PARTIAL (retry fai
 
 ---
 
+## Phase 7: Pending Review & Rejection System - COMPLETED
+
+**Date:** December 2024
+
+### Overview
+
+Enhanced the warranty claim workflow with a comprehensive pending review system. When pickups are completed, they now appear in the Claims section for staff review. Items can be accepted (moves to claim processing) or rejected (scheduled for return delivery).
+
+### Completed Tasks:
+
+#### 1. Schema Updates
+- Added `REJECTED` status to `PickupStatus` enum
+- Added rejection tracking fields to Pickup model:
+  - `rejectedAt: DateTime?` - When the pickup was rejected
+  - `rejectedBy: Int?` - User who rejected
+  - `rejectionReason: String? @db.Text` - Reason for rejection
+
+#### 2. New API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/logistics/pickups/pending-review` | GET | List completed pickups awaiting review |
+| `/api/logistics/pickups/rejected` | GET | List rejected pickups for return delivery |
+
+#### 3. Updated Pickup PATCH API
+- Added `reject` action: Marks pickup as REJECTED, sets rejection details, updates claim to "rejected"
+- Added `accept` action: Moves claim to first processing workflow step
+
+#### 4. Claims Page Redesign
+- Added Tabs component with "Pending Review" and "All Claims" tabs
+- Pending Review tab shows completed pickups as cards with product/customer info
+- Accept dialog confirms and moves claim to processing
+- Reject dialog with reason textarea
+
+#### 5. Rejected Items Page (`/logistics/rejected`)
+- Lists all rejected pickups with rejection reason displayed
+- Multi-select functionality for batch operations
+- Create Return Delivery dialog with:
+  - Collector assignment (optional)
+  - Scheduled date (optional)
+  - Notes
+
+#### 6. Logistics Dashboard Updates
+- Added `rejectedPickups` count to stats
+- Displays "Rejected Items" quick action card when count > 0
+
+#### 7. Pickup UX Improvements
+- Auto-assign collector when collector creates pickup
+- Mobile-friendly Schedule Pickup dialog with fixed footer
+- Complete Pickup receiver changed from text input to user selector
+- Claim creator shown first with "(Claim Creator)" label
+
+### Files Created/Modified
+
+```
+prisma/
+└── schema.prisma                                    # Added REJECTED status, rejection fields
+
+src/
+├── app/
+│   ├── (dashboard)/
+│   │   ├── claims/
+│   │   │   └── page.tsx                            # Redesigned with Pending Review tab
+│   │   └── logistics/
+│   │       ├── page.tsx                            # Added rejected stats
+│   │       ├── pickups/
+│   │       │   └── page.tsx                        # UX improvements
+│   │       └── rejected/
+│   │           └── page.tsx                        # NEW: Rejected items page
+│   └── api/
+│       └── logistics/
+│           └── pickups/
+│               ├── [id]/
+│               │   └── route.ts                    # Added reject/accept actions
+│               ├── pending-review/
+│               │   └── route.ts                    # NEW: Pending review API
+│               └── rejected/
+│                   └── route.ts                    # NEW: Rejected pickups API
+```
+
+### Workflow Diagram
+
+```
+PICKUP COMPLETED
+       │
+       ▼
+┌──────────────────┐
+│  Pending Review  │  ◄── Shows in Claims page
+│     (Claims)     │
+└────────┬─────────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌───────┐ ┌────────┐
+│ ACCEPT│ │ REJECT │
+└───┬───┘ └───┬────┘
+    │         │
+    ▼         ▼
+┌───────────┐ ┌──────────────┐
+│  Claim    │ │   Rejected   │
+│Processing │ │    Items     │
+└───────────┘ │    Page      │
+              └──────┬───────┘
+                     │
+                     ▼
+              ┌──────────────┐
+              │Return Delivery│
+              │   Created     │
+              └──────────────┘
+```
+
+---
+
 **Last Updated:** December 2024
-**Current Phase:** Phase 4 Complete - Enhanced Logistics System
-**Next Phase:** Phase 7 - Reports & Analytics
+**Current Phase:** Phase 7 Complete - Pending Review & Rejection System
+**Next Phase:** Phase 8 - Reports & Analytics

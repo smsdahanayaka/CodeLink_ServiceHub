@@ -374,9 +374,84 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         historyNotes = `Pickup ${existingPickup.pickupNumber} cancelled`;
         break;
 
+      case "reject":
+        // Reject the pickup after inspection - item will be returned
+        if (existingPickup.status !== "COMPLETED") {
+          return errorResponse(
+            "Only completed pickups can be rejected",
+            "INVALID_STATUS",
+            400
+          );
+        }
+        const { rejectionReason } = body;
+        if (!rejectionReason) {
+          return errorResponse("Rejection reason is required", "VALIDATION_ERROR", 400);
+        }
+        updateData = {
+          status: "REJECTED",
+          rejectedAt: new Date(),
+          rejectedBy: user.id,
+          rejectionReason: rejectionReason,
+        };
+        historyAction = "pickup_rejected";
+        historyNotes = `Pickup ${existingPickup.pickupNumber} rejected: ${rejectionReason}`;
+
+        // Update claim status to rejected
+        await prisma.warrantyClaim.update({
+          where: { id: existingPickup.claimId },
+          data: {
+            currentStatus: "rejected",
+            resolution: `Rejected: ${rejectionReason}`,
+          },
+        });
+        break;
+
+      case "accept":
+        // Accept the pickup and move claim to active processing
+        if (existingPickup.status !== "COMPLETED") {
+          return errorResponse(
+            "Only completed pickups can be accepted for claim processing",
+            "INVALID_STATUS",
+            400
+          );
+        }
+
+        // Get workflow to determine next status
+        const claim = await prisma.warrantyClaim.findUnique({
+          where: { id: existingPickup.claimId },
+          include: {
+            workflow: {
+              include: {
+                steps: { orderBy: { stepOrder: "asc" } },
+              },
+            },
+          },
+        });
+
+        if (claim) {
+          // Find first processing step (not initial/received)
+          const processingStep = claim.workflow?.steps.find(
+            (s) => !["new", "received", "pending_review"].includes(s.statusName.toLowerCase())
+          );
+
+          await prisma.warrantyClaim.update({
+            where: { id: existingPickup.claimId },
+            data: {
+              currentStatus: processingStep?.statusName || "in_progress",
+              currentStepId: processingStep?.id || claim.currentStepId,
+              receivedAt: new Date(),
+            },
+          });
+        }
+
+        historyAction = "claim_accepted";
+        historyNotes = `Pickup ${existingPickup.pickupNumber} accepted - claim moved to processing`;
+        // No pickup status change needed - stays COMPLETED
+        break;
+
       default:
         return errorResponse(
-          "Invalid action. Use: start_transit, complete, cancel",
+          "Invalid action. Use: start_transit, complete, cancel, reject, accept",
           "INVALID_ACTION",
           400
         );

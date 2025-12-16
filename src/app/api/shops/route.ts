@@ -107,6 +107,8 @@ export async function POST(request: NextRequest) {
         gstNumber: validatedData.gstNumber || null,
         status: validatedData.status,
         notes: validatedData.notes || null,
+        // Default to verified (true) unless explicitly set to false
+        isVerified: validatedData.isVerified !== false,
       },
     });
 

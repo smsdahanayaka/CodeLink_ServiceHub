@@ -32,7 +32,9 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(taskkill:*)",
-      "Bash(del \"C:\\Hype-Projects\\CodeLink_ServiceHub\\src\\app\\(dashboard)\\page.tsx\")"
+      "Bash(del \"C:\\Hype-Projects\\CodeLink_ServiceHub\\src\\app\\(dashboard)\\page.tsx\")",
+      "Bash(tasklist:*)",
+      "Bash(timeout /t 3)"
     ]
   }
 }

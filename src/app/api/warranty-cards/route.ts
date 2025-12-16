@@ -124,12 +124,36 @@ export async function POST(request: NextRequest) {
       return errorResponse("Product not found", "PRODUCT_NOT_FOUND", 400);
     }
 
-    // Verify shop exists and belongs to tenant
-    const shop = await prisma.shop.findFirst({
-      where: { id: validatedData.shopId, tenantId: user.tenantId },
-    });
-    if (!shop) {
-      return errorResponse("Shop not found", "SHOP_NOT_FOUND", 400);
+    // Handle shop - either existing or create new (unverified)
+    let shopId: number;
+
+    if (validatedData.newShop) {
+      // Create new unverified shop
+      const newShop = await prisma.shop.create({
+        data: {
+          tenantId: user.tenantId,
+          name: validatedData.newShop.name,
+          phone: validatedData.newShop.phone,
+          address: validatedData.newShop.address || null,
+          city: validatedData.newShop.city || null,
+          country: "India",
+          status: "ACTIVE",
+          isVerified: false, // Pending admin verification
+          notes: `Created by ${user.firstName || user.email} during warranty registration. Pending verification.`,
+        },
+      });
+      shopId = newShop.id;
+    } else if (validatedData.shopId) {
+      // Verify existing shop exists and belongs to tenant
+      const shop = await prisma.shop.findFirst({
+        where: { id: validatedData.shopId, tenantId: user.tenantId },
+      });
+      if (!shop) {
+        return errorResponse("Shop not found", "SHOP_NOT_FOUND", 400);
+      }
+      shopId = validatedData.shopId;
+    } else {
+      return errorResponse("Please select a shop or add new shop details", "SHOP_REQUIRED", 400);
     }
 
     // Handle customer - either existing, new inline, or none
@@ -143,7 +167,7 @@ export async function POST(request: NextRequest) {
           name: validatedData.newCustomer.name,
           phone: validatedData.newCustomer.phone,
           email: validatedData.newCustomer.email || null,
-          shopId: validatedData.shopId, // Link to the same shop
+          shopId: shopId, // Link to the shop
           country: "India",
         },
       });
@@ -187,7 +211,7 @@ export async function POST(request: NextRequest) {
         cardNumber,
         productId: validatedData.productId,
         customerId, // Can be null
-        shopId: validatedData.shopId,
+        shopId,
         serialNumber: validatedData.serialNumber,
         purchaseDate,
         warrantyStartDate,
@@ -201,7 +225,7 @@ export async function POST(request: NextRequest) {
       include: {
         product: { select: { id: true, name: true, modelNumber: true } },
         customer: { select: { id: true, name: true, phone: true } },
-        shop: { select: { id: true, name: true, code: true } },
+        shop: { select: { id: true, name: true, code: true, isVerified: true } },
       },
     });
 

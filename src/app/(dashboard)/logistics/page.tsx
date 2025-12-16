@@ -20,6 +20,7 @@ import {
   Send,
   Inbox,
   PackageCheck,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,6 +52,7 @@ interface DashboardStats {
     partial: number;
   };
   readyForDelivery: number;
+  rejectedPickups: number;
 }
 
 interface CollectorWorkload {
@@ -70,6 +72,7 @@ export default function LogisticsDashboardPage() {
     collectionTrips: { total: 0, inProgress: 0, inTransit: 0, receivedToday: 0 },
     deliveryTrips: { total: 0, pending: 0, assigned: 0, inTransit: 0, completedToday: 0, partial: 0 },
     readyForDelivery: 0,
+    rejectedPickups: 0,
   });
   const [collectorWorkloads, setCollectorWorkloads] = useState<CollectorWorkload[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +100,10 @@ export default function LogisticsDashboardPage() {
       const claimsRes = await fetch("/api/claims?location=SERVICE_CENTER&status=COMPLETED,CLOSED&limit=200");
       const claimsData = await claimsRes.json();
 
+      // Fetch rejected pickups
+      const rejectedRes = await fetch("/api/logistics/pickups/rejected");
+      const rejectedData = await rejectedRes.json();
+
       if (collectorsData.success) {
         const collectors = collectorsData.data || [];
         const collectionTrips = collectionData.success ? collectionData.data || [] : [];
@@ -108,6 +115,7 @@ export default function LogisticsDashboardPage() {
                 ["COMPLETED", "CLOSED"].includes(c.currentStatus)
             )
           : [];
+        const rejectedPickups = rejectedData.success ? rejectedData.data || [] : [];
 
         // Calculate stats
         const today = new Date();
@@ -144,6 +152,7 @@ export default function LogisticsDashboardPage() {
             partial: deliveryTrips.filter((d: { status: string }) => d.status === "PARTIAL").length,
           },
           readyForDelivery: readyClaims.length,
+          rejectedPickups: rejectedPickups.length,
         });
 
         // Calculate collector workloads
@@ -333,6 +342,22 @@ export default function LogisticsDashboardPage() {
             </CardContent>
           </Link>
         </Card>
+
+        {stats.rejectedPickups > 0 && (
+          <Card className="cursor-pointer transition-colors hover:bg-muted/50 border-red-200">
+            <Link href="/logistics/rejected">
+              <CardContent className="flex items-center gap-4 pt-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900">
+                  <XCircle className="h-6 w-6 text-red-600" />
+                </div>
+                <div>
+                  <div className="font-medium">Rejected Items</div>
+                  <div className="text-sm text-red-600">{stats.rejectedPickups} awaiting return</div>
+                </div>
+              </CardContent>
+            </Link>
+          </Card>
+        )}
       </div>
 
       {/* Trip Metrics */}

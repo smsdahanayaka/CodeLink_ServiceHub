@@ -284,6 +284,15 @@ export async function POST(request: NextRequest) {
       return errorResponse("Warranty card not found", "WARRANTY_CARD_NOT_FOUND", 400);
     }
 
+    // Check if shop is verified (admin must verify before claims can be created)
+    if (warrantyCard.shop && !warrantyCard.shop.isVerified) {
+      return errorResponse(
+        "Shop is pending verification. Admin must verify the shop before creating claims.",
+        "SHOP_NOT_VERIFIED",
+        400
+      );
+    }
+
     // Check if warranty card is void
     if (warrantyCard.status === "VOID") {
       return errorResponse(
