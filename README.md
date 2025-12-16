@@ -878,6 +878,287 @@ SENDGRID_FROM_NAME=CodeLink ServiceHub
 
 ---
 
+## Phase 4: Enhanced Logistics System
+
+### Overview
+
+The enhanced logistics system introduces a **Trip-Based** approach for collecting and delivering warranty items between shops and the service center. This provides a more user-friendly, real-world workflow compared to individual pickup/delivery records.
+
+### Key Concepts
+
+#### Collection Trip
+A **Collection Trip** represents a collector's visit to a shop (or customer) to pick up multiple devices. Some devices may have registered warranty cards, others may not - both are handled seamlessly.
+
+#### Delivery Trip
+A **Delivery Trip** groups multiple completed claims going to the same destination, allowing efficient batch deliveries.
+
+### Process Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         LOGISTICS WORKFLOW                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PHASE 1: COLLECTION (At Shop or Customer)                                  │
+│  ─────────────────────────────────────────                                  │
+│  • Collector creates a Collection Trip                                      │
+│  • Selects Shop (or Customer for direct pickup)                            │
+│  • Adds items to collect:                                                   │
+│    - With warranty card: Link existing card                                │
+│    - Without warranty card: Enter serial + product + issue                 │
+│  • Starts trip when collection is complete                                  │
+│                                                                              │
+│  PHASE 2: TRANSIT TO SERVICE CENTER                                         │
+│  ──────────────────────────────────                                         │
+│  • Trip status: IN_TRANSIT                                                  │
+│  • All items tracked together                                               │
+│  • Mobile-friendly interface for collectors                                 │
+│                                                                              │
+│  PHASE 3: RECEIVING AT SERVICE CENTER                                       │
+│  ────────────────────────────────────                                       │
+│  • Admin receives the Collection Trip                                       │
+│  • For each item:                                                           │
+│    - If warranty card exists: Auto-create claim                            │
+│    - If no warranty card: Register card (shop info only if no customer)    │
+│      then auto-create claim                                                 │
+│  • Items enter the normal workflow process                                  │
+│                                                                              │
+│  PHASE 4: REPAIR PROCESS (Existing Workflow)                                │
+│  ───────────────────────────────────────────                                │
+│  • Claims go through configured workflow steps                              │
+│  • Technicians repair devices                                               │
+│  • QC checks completed                                                      │
+│  • Claims marked as ready for delivery                                      │
+│                                                                              │
+│  PHASE 5: DELIVERY ASSIGNMENT                                               │
+│  ────────────────────────────                                               │
+│  • Admin views completed claims ready for delivery                          │
+│  • Bulk select claims going to same shop/customer                          │
+│  • Create Delivery Trip and assign to collector                            │
+│  • Schedule delivery date/time                                              │
+│                                                                              │
+│  PHASE 6: DELIVERY EXECUTION                                                │
+│  ───────────────────────────                                                │
+│  • Collector delivers items to shop/customer                                │
+│  • Records recipient name and signature                                     │
+│  • Marks items as delivered                                                 │
+│  • Failed items can be retried in same trip                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Database Models
+
+#### CollectionTrip
+| Field | Type | Description |
+|-------|------|-------------|
+| id | Int | Primary key |
+| tenantId | Int | Tenant reference |
+| tripNumber | String | Unique number (CT-YYMMXXXXX) |
+| collectorId | Int | Assigned collector |
+| fromType | Enum | SHOP or CUSTOMER |
+| shopId | Int? | Source shop (if from shop) |
+| customerName | String? | Customer name (if direct) |
+| customerPhone | String? | Customer phone (if direct) |
+| customerAddress | String? | Pickup address (if direct) |
+| status | Enum | IN_PROGRESS, IN_TRANSIT, RECEIVED, CANCELLED |
+| startedAt | DateTime | Trip start time |
+| completedAt | DateTime? | Collection completed |
+| receivedAt | DateTime? | Received at service center |
+| receivedBy | Int? | User who received |
+| notes | String? | Additional notes |
+
+#### CollectionItem
+| Field | Type | Description |
+|-------|------|-------------|
+| id | Int | Primary key |
+| tripId | Int | Parent trip reference |
+| serialNumber | String | Device serial number |
+| issueDescription | String | Problem description |
+| warrantyCardId | Int? | Existing warranty card (if registered) |
+| productId | Int? | Product (for unregistered items) |
+| customerName | String? | Customer (for unregistered items) |
+| customerPhone | String? | Customer phone (for unregistered) |
+| claimId | Int? | Created claim (after processing) |
+| status | Enum | COLLECTED, RECEIVED, PROCESSED |
+
+#### DeliveryTrip
+| Field | Type | Description |
+|-------|------|-------------|
+| id | Int | Primary key |
+| tenantId | Int | Tenant reference |
+| tripNumber | String | Unique number (DT-YYMMXXXXX) |
+| collectorId | Int | Assigned collector |
+| toType | Enum | SHOP or CUSTOMER |
+| shopId | Int? | Destination shop |
+| customerName | String? | Customer name (if direct) |
+| customerPhone | String? | Customer phone |
+| customerAddress | String? | Delivery address |
+| status | Enum | PENDING, ASSIGNED, IN_TRANSIT, COMPLETED, PARTIAL, CANCELLED |
+| scheduledDate | DateTime? | Scheduled delivery date |
+| scheduledSlot | String? | Time slot |
+| dispatchedAt | DateTime? | When departed |
+| completedAt | DateTime? | When finished |
+| recipientName | String? | Who received |
+| signatureUrl | String? | Signature image |
+| notes | String? | Additional notes |
+
+#### DeliveryItem
+| Field | Type | Description |
+|-------|------|-------------|
+| id | Int | Primary key |
+| tripId | Int | Parent trip reference |
+| claimId | Int | Claim being delivered |
+| status | Enum | PENDING, DELIVERED, FAILED |
+| failureReason | String? | Why delivery failed |
+| notes | String? | Item-specific notes |
+
+### API Endpoints
+
+#### Collection Trips
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/logistics/collection-trips` | List all collection trips |
+| POST | `/api/logistics/collection-trips` | Create new collection trip |
+| GET | `/api/logistics/collection-trips/[id]` | Get trip details |
+| PUT | `/api/logistics/collection-trips/[id]` | Update trip |
+| DELETE | `/api/logistics/collection-trips/[id]` | Cancel trip |
+| PATCH | `/api/logistics/collection-trips/[id]` | Status transitions (start_transit, receive) |
+| POST | `/api/logistics/collection-trips/[id]/items` | Add item to trip |
+| DELETE | `/api/logistics/collection-trips/[id]/items/[itemId]` | Remove item |
+| POST | `/api/logistics/collection-trips/[id]/receive` | Receive trip at service center |
+
+#### Delivery Trips
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/logistics/delivery-trips` | List all delivery trips |
+| POST | `/api/logistics/delivery-trips` | Create new delivery trip |
+| GET | `/api/logistics/delivery-trips/[id]` | Get trip details |
+| PUT | `/api/logistics/delivery-trips/[id]` | Update trip |
+| DELETE | `/api/logistics/delivery-trips/[id]` | Cancel trip |
+| PATCH | `/api/logistics/delivery-trips/[id]` | Status transitions (dispatch, complete) |
+| PATCH | `/api/logistics/delivery-trips/[id]/items/[itemId]` | Update item status (delivered, failed, retry) |
+
+### UI Pages
+
+#### For Collectors (Mobile-Friendly)
+
+| Page | Path | Description |
+|------|------|-------------|
+| My Trips | `/logistics/my-trips` | Collector's assigned trips |
+| New Collection | `/logistics/collect` | Start new collection trip |
+| Collection Details | `/logistics/collect/[id]` | Manage collection in progress |
+| Delivery Details | `/logistics/deliver/[id]` | Execute delivery trip |
+
+#### For Service Center
+
+| Page | Path | Description |
+|------|------|-------------|
+| Logistics Dashboard | `/logistics` | Overview and stats |
+| Pending Receipts | `/logistics/receive` | Trips waiting to be received |
+| Receive Trip | `/logistics/receive/[id]` | Process incoming trip |
+| Ready for Delivery | `/logistics/ready-for-delivery` | Claims ready to ship |
+| Create Delivery | `/logistics/delivery-trips/new` | Create new delivery trip |
+| Collection Trips | `/logistics/collection-trips` | All collection trips |
+| Delivery Trips | `/logistics/delivery-trips` | All delivery trips |
+
+### Permissions
+
+| Permission | Description |
+|------------|-------------|
+| `logistics.view` | View logistics dashboard and trips |
+| `logistics.create_collection` | Create collection trips |
+| `logistics.receive` | Receive trips at service center |
+| `logistics.create_delivery` | Create delivery trips |
+| `logistics.manage_collectors` | Manage collector records |
+
+### Key Features
+
+#### 1. Flexible Collection
+- Collect from **shops** or directly from **customers**
+- Handle both **registered** and **unregistered** warranty cards
+- Add multiple items per trip
+- Mobile-friendly interface for collectors on the go
+
+#### 2. Smart Receiving
+- Batch receive all items in a trip
+- Auto-register warranty cards (with shop info if no customer details)
+- Auto-create claims for each item
+- Items automatically enter workflow
+
+#### 3. Efficient Delivery
+- Bulk select completed claims by destination
+- Group deliveries to same shop/customer
+- Track individual item delivery status
+- Retry failed deliveries within same trip
+- Capture signatures as proof of delivery
+
+#### 4. Mobile-First Collector Interface
+- Responsive design works on phones/tablets
+- Quick item scanning (serial number entry)
+- One-tap status updates
+- Offline-capable (future enhancement)
+
+### Status Flows
+
+#### Collection Trip Status
+```
+IN_PROGRESS → IN_TRANSIT → RECEIVED
+     ↓
+  CANCELLED
+```
+
+#### Collection Item Status
+```
+COLLECTED → RECEIVED → PROCESSED
+```
+
+#### Delivery Trip Status
+```
+PENDING → ASSIGNED → IN_TRANSIT → COMPLETED
+    ↓         ↓           ↓
+    └─────────┴───────────┴──→ CANCELLED
+                          ↓
+                       PARTIAL (some items failed)
+```
+
+#### Delivery Item Status
+```
+PENDING → DELIVERED
+    ↓
+  FAILED ←→ PENDING (retry)
+```
+
+### Implementation Phases
+
+#### Phase 4.1: Database & Core APIs
+- Add new Prisma models
+- Create collection trip APIs
+- Create delivery trip APIs
+- Update permissions
+
+#### Phase 4.2: Service Center UI
+- Pending receipts page
+- Receive trip interface
+- Ready for delivery page
+- Create delivery trip page
+
+#### Phase 4.3: Collector Mobile UI
+- My trips dashboard
+- New collection interface
+- Collection management
+- Delivery execution
+
+#### Phase 4.4: Integration & Polish
+- Dashboard updates
+- Notifications integration
+- Reports and analytics
+- Performance optimization
+
+---
+
 ## License
 
 Proprietary - CodeLink
