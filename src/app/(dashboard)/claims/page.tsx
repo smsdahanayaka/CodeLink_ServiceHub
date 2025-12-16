@@ -44,10 +44,10 @@ interface Claim {
     id: number;
     cardNumber: string;
     serialNumber: string;
-    product: { id: number; name: string; modelNumber: string | null };
-    customer: { id: number; name: string; phone: string };
-    shop: { id: number; name: string; code: string | null };
-  };
+    product: { id: number; name: string; modelNumber: string | null } | null;
+    customer: { id: number; name: string; phone: string } | null;
+    shop: { id: number; name: string; code: string | null } | null;
+  } | null;
   assignedUser: { id: number; firstName: string | null; lastName: string | null } | null;
   _count: { claimHistory: number };
 }
@@ -139,9 +139,9 @@ export default function ClaimsPage() {
       title: "Product",
       render: (claim) => (
         <div>
-          <div className="font-medium">{claim.warrantyCard.product.name}</div>
+          <div className="font-medium">{claim.warrantyCard?.product?.name || "N/A"}</div>
           <div className="text-xs text-muted-foreground font-mono">
-            {claim.warrantyCard.serialNumber}
+            {claim.warrantyCard?.serialNumber || "-"}
           </div>
         </div>
       ),
@@ -151,9 +151,9 @@ export default function ClaimsPage() {
       title: "Customer",
       render: (claim) => (
         <div>
-          <div className="font-medium">{claim.warrantyCard.customer.name}</div>
+          <div className="font-medium">{claim.warrantyCard?.customer?.name || "N/A"}</div>
           <div className="text-xs text-muted-foreground">
-            {claim.warrantyCard.customer.phone}
+            {claim.warrantyCard?.customer?.phone || "-"}
           </div>
         </div>
       ),

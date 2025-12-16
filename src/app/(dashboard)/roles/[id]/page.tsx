@@ -6,7 +6,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout";
@@ -23,7 +23,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { PERMISSIONS, PERMISSION_GROUPS } from "@/lib/constants/permissions";
+
+interface Permission {
+  key: string;
+  label: string;
+}
+
+interface PermissionGroup {
+  name: string;
+  permissions: Permission[];
+}
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -35,12 +44,32 @@ export default function EditRolePage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isSystem, setIsSystem] = useState(false);
+  const [permissionGroups, setPermissionGroups] = useState<PermissionGroup[]>([]);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     permissions: [] as string[],
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Fetch available permissions from API
+  useEffect(() => {
+    const fetchPermissions = async () => {
+      try {
+        const res = await fetch("/api/permissions");
+        const data = await res.json();
+
+        if (data.success) {
+          setPermissionGroups(data.data.groups);
+        }
+      } catch (error) {
+        console.error("Error fetching permissions:", error);
+        toast.error("Failed to load permissions");
+      }
+    };
+
+    fetchPermissions();
+  }, []);
 
   // Fetch role
   useEffect(() => {
@@ -87,21 +116,28 @@ export default function EditRolePage({ params }: PageProps) {
   };
 
   // Toggle all permissions in a group
-  const toggleGroup = (groupPermissions: readonly string[]) => {
-    const allSelected = groupPermissions.every((p) =>
-      formData.permissions.includes(p)
-    );
+  const toggleGroup = (groupPermissions: Permission[]) => {
+    const permKeys = groupPermissions.map((p) => p.key);
+    const allSelected = permKeys.every((p) => formData.permissions.includes(p));
     setFormData((prev) => ({
       ...prev,
       permissions: allSelected
-        ? prev.permissions.filter((p) => !groupPermissions.includes(p))
-        : [...new Set([...prev.permissions, ...groupPermissions])],
+        ? prev.permissions.filter((p) => !permKeys.includes(p))
+        : [...new Set([...prev.permissions, ...permKeys])],
     }));
   };
 
   // Check if all permissions in group are selected
-  const isGroupSelected = (groupPermissions: readonly string[]) =>
-    groupPermissions.every((p) => formData.permissions.includes(p));
+  const isGroupSelected = (groupPermissions: Permission[]) =>
+    groupPermissions.every((p) => formData.permissions.includes(p.key));
+
+  // Check if some permissions in group are selected
+  const isGroupPartiallySelected = (groupPermissions: Permission[]) => {
+    const selectedCount = groupPermissions.filter((p) =>
+      formData.permissions.includes(p.key)
+    ).length;
+    return selectedCount > 0 && selectedCount < groupPermissions.length;
+  };
 
   // Handle input change
   const handleChange = (field: string, value: string) => {
@@ -109,6 +145,17 @@ export default function EditRolePage({ params }: PageProps) {
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: "" }));
     }
+  };
+
+  // Select all permissions
+  const selectAll = () => {
+    const allPerms = permissionGroups.flatMap((g) => g.permissions.map((p) => p.key));
+    setFormData((prev) => ({ ...prev, permissions: allPerms }));
+  };
+
+  // Clear all permissions
+  const clearAll = () => {
+    setFormData((prev) => ({ ...prev, permissions: [] }));
   };
 
   // Validate form
@@ -138,6 +185,7 @@ export default function EditRolePage({ params }: PageProps) {
 
       if (data.success) {
         toast.success("Role updated successfully");
+        toast.info("Users with this role will get updated permissions on their next login or refresh");
         router.push("/roles");
       } else {
         toast.error(data.error?.message || "Failed to update role");
@@ -209,55 +257,69 @@ export default function EditRolePage({ params }: PageProps) {
         {/* Permissions */}
         <Card>
           <CardHeader>
-            <CardTitle>Permissions</CardTitle>
-            <CardDescription>
-              Select the permissions for this role
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Permissions</CardTitle>
+                <CardDescription>
+                  Select the permissions for this role ({formData.permissions.length} selected)
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={selectAll}>
+                  Select All
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={clearAll}>
+                  Clear All
+                </Button>
+              </div>
+            </div>
             {errors.permissions && (
               <p className="text-sm text-destructive">{errors.permissions}</p>
             )}
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              {Object.entries(PERMISSION_GROUPS).map(
-                ([group, groupPermissions]) => (
-                  <div key={group} className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`group-${group}`}
-                        checked={isGroupSelected(groupPermissions)}
-                        onCheckedChange={() => toggleGroup(groupPermissions)}
-                      />
-                      <Label
-                        htmlFor={`group-${group}`}
-                        className="font-semibold cursor-pointer"
-                      >
-                        {group}
-                      </Label>
-                    </div>
-                    <div className="ml-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                      {groupPermissions.map((permission) => (
-                        <div
-                          key={permission}
-                          className="flex items-center space-x-2"
-                        >
-                          <Checkbox
-                            id={permission}
-                            checked={formData.permissions.includes(permission)}
-                            onCheckedChange={() => togglePermission(permission)}
-                          />
-                          <Label
-                            htmlFor={permission}
-                            className="text-sm cursor-pointer"
-                          >
-                            {PERMISSIONS[permission as keyof typeof PERMISSIONS]}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
+              {permissionGroups.map((group) => (
+                <div key={group.name} className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`group-${group.name}`}
+                      checked={isGroupSelected(group.permissions)}
+                      onCheckedChange={() => toggleGroup(group.permissions)}
+                      className={isGroupPartiallySelected(group.permissions) ? "opacity-50" : ""}
+                    />
+                    <Label
+                      htmlFor={`group-${group.name}`}
+                      className="font-semibold cursor-pointer"
+                    >
+                      {group.name}
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      ({group.permissions.filter((p) => formData.permissions.includes(p.key)).length}/{group.permissions.length})
+                    </span>
                   </div>
-                )
-              )}
+                  <div className="ml-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {group.permissions.map((permission) => (
+                      <div
+                        key={permission.key}
+                        className="flex items-center space-x-2"
+                      >
+                        <Checkbox
+                          id={permission.key}
+                          checked={formData.permissions.includes(permission.key)}
+                          onCheckedChange={() => togglePermission(permission.key)}
+                        />
+                        <Label
+                          htmlFor={permission.key}
+                          className="text-sm cursor-pointer"
+                        >
+                          {permission.label}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

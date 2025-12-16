@@ -61,7 +61,7 @@ interface VerifiedCard {
     modelNumber: string | null;
     warrantyPeriodMonths: number;
     category: { id: number; name: string } | null;
-  };
+  } | null;
   customer: {
     id: number;
     name: string;
@@ -70,13 +70,13 @@ interface VerifiedCard {
     address: string | null;
     city: string | null;
     state: string | null;
-  };
+  } | null;
   shop: {
     id: number;
     name: string;
     code: string | null;
     phone: string | null;
-  };
+  } | null;
   _count: { warrantyClaims: number };
 }
 
@@ -289,11 +289,11 @@ export default function WarrantyVerifyPage() {
                           Product
                         </div>
                         <div>
-                          <p className="font-medium">{card.product.name}</p>
-                          {card.product.modelNumber && (
+                          <p className="font-medium">{card.product?.name || "N/A"}</p>
+                          {card.product?.modelNumber && (
                             <p className="text-sm text-muted-foreground">{card.product.modelNumber}</p>
                           )}
-                          {card.product.category && (
+                          {card.product?.category && (
                             <Badge variant="secondary" className="mt-1">{card.product.category.name}</Badge>
                           )}
                         </div>
@@ -306,10 +306,10 @@ export default function WarrantyVerifyPage() {
                           Customer
                         </div>
                         <div>
-                          <p className="font-medium">{card.customer.name}</p>
+                          <p className="font-medium">{card.customer?.name || "N/A"}</p>
                           <div className="flex items-center gap-1 text-sm text-muted-foreground">
                             <Phone className="h-3 w-3" />
-                            {card.customer.phone}
+                            {card.customer?.phone || "-"}
                           </div>
                         </div>
                       </div>
@@ -321,8 +321,8 @@ export default function WarrantyVerifyPage() {
                           Purchase Location
                         </div>
                         <div>
-                          <p className="font-medium">{card.shop.name}</p>
-                          {card.shop.code && (
+                          <p className="font-medium">{card.shop?.name || "N/A"}</p>
+                          {card.shop?.code && (
                             <p className="text-sm text-muted-foreground">{card.shop.code}</p>
                           )}
                         </div>

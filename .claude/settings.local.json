@@ -21,7 +21,8 @@
       "Bash(if exist .next rmdir /s /q .next)",
       "Bash(cat:*)",
       "Bash(xargs:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ]
   }
 }
