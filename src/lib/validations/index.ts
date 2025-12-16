@@ -151,6 +151,11 @@ export const createClaimSchema = z.object({
   issueCategory: z.string().optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
   reportedBy: z.enum(["CUSTOMER", "SHOP", "INTERNAL"]).default("SHOP"),
+  // Phase 5: Warranty validation fields
+  isUnderWarranty: z.boolean().default(true),
+  warrantyOverride: z.boolean().default(false), // If true, override warranty decision
+  warrantyOverrideReason: z.string().optional(),
+  requiresQuotation: z.boolean().default(false), // If true, quotation needed before repair
 });
 
 export type CreateClaimInput = z.infer<typeof createClaimSchema>;

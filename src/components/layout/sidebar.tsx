@@ -24,6 +24,7 @@ import {
   ChevronDown,
   Inbox,
   X,
+  Boxes,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,12 @@ const menuItems = [
     href: "/products",
     icon: Package,
     permission: "products.view",
+  },
+  {
+    title: "Inventory",
+    href: "/inventory",
+    icon: Boxes,
+    permission: "inventory.view",
   },
   {
     title: "Shops",
@@ -89,10 +96,11 @@ const menuItems = [
     title: "Logistics",
     icon: Truck,
     children: [
-      { title: "Dashboard", href: "/logistics", permission: "logistics.view" },
-      { title: "Collectors", href: "/logistics/collectors", permission: "logistics.view" },
-      { title: "Pickups", href: "/logistics/pickups", permission: "logistics.view" },
-      { title: "Deliveries", href: "/logistics/deliveries", permission: "logistics.view" },
+      { title: "Dashboard", href: "/logistics", permission: "logistics.manage_pickups" },
+      { title: "My Trips", href: "/logistics/my-trips", permission: "logistics.my_trips" },
+      { title: "Collectors", href: "/logistics/collectors", permission: "logistics.manage_collectors" },
+      { title: "Pickups", href: "/logistics/pickups", permission: "logistics.manage_pickups" },
+      { title: "Deliveries", href: "/logistics/deliveries", permission: "logistics.manage_deliveries" },
     ],
   },
   {

@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 
 interface DashboardShellProps {
   children: React.ReactNode;
@@ -20,8 +21,16 @@ interface DashboardShellProps {
   };
 }
 
-export function DashboardShell({ children, userPermissions, user }: DashboardShellProps) {
+export function DashboardShell({ children, userPermissions: initialPermissions, user }: DashboardShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Use the usePermissions hook to get fresh permissions from database
+  const { permissions: freshPermissions, isLoading } = usePermissions();
+
+  // Use fresh permissions if available, otherwise fall back to initial
+  const userPermissions = !isLoading && freshPermissions.length > 0
+    ? freshPermissions
+    : initialPermissions;
 
   return (
     <div className="min-h-screen bg-muted/30">

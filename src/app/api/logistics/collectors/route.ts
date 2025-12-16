@@ -14,6 +14,7 @@ import {
 } from "@/lib/api-utils";
 import { createCollectorSchema } from "@/lib/validations";
 import { ZodError } from "zod";
+import { COLLECTOR_PERMISSIONS } from "@/lib/constants/permissions";
 
 // GET /api/logistics/collectors - List all collectors
 export async function GET(request: NextRequest) {
@@ -114,24 +115,52 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create collector
-    const collector = await prisma.collector.create({
-      data: {
-        tenantId: user.tenantId,
-        name: validatedData.name,
-        phone: validatedData.phone,
-        email: validatedData.email || null,
-        userId: validatedData.userId || null,
-        vehicleNumber: validatedData.vehicleNumber || null,
-        vehicleType: validatedData.vehicleType || null,
-        assignedAreas: validatedData.assignedAreas || undefined,
-        status: validatedData.status,
-      },
-      include: {
-        user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+    // Create collector and assign permissions in a transaction
+    const collector = await prisma.$transaction(async (tx) => {
+      // Create collector
+      const newCollector = await tx.collector.create({
+        data: {
+          tenantId: user.tenantId,
+          name: validatedData.name,
+          phone: validatedData.phone,
+          email: validatedData.email || null,
+          userId: validatedData.userId || null,
+          vehicleNumber: validatedData.vehicleNumber || null,
+          vehicleType: validatedData.vehicleType || null,
+          assignedAreas: validatedData.assignedAreas || undefined,
+          status: validatedData.status,
         },
-      },
+        include: {
+          user: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      });
+
+      // If linked to a user, add collector permissions to their role
+      if (validatedData.userId) {
+        // Get user with their role
+        const linkedUser = await tx.user.findUnique({
+          where: { id: validatedData.userId },
+          include: { role: true },
+        });
+
+        if (linkedUser && linkedUser.role) {
+          // Merge existing role permissions with collector permissions (avoid duplicates)
+          const currentPermissions = (linkedUser.role.permissions as string[]) || [];
+          const newPermissions = Array.from(
+            new Set([...currentPermissions, ...COLLECTOR_PERMISSIONS])
+          );
+
+          // Update role permissions
+          await tx.role.update({
+            where: { id: linkedUser.roleId },
+            data: { permissions: newPermissions },
+          });
+        }
+      }
+
+      return newCollector;
     });
 
     return successResponse(collector);

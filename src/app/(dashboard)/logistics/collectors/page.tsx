@@ -57,11 +57,21 @@ interface Collector {
   vehicleType: string | null;
   assignedAreas: string[];
   status: "ACTIVE" | "INACTIVE" | "ON_LEAVE";
+  userId: number | null;
   user: { id: number; firstName: string; lastName: string; email: string } | null;
   _count: { pickups: number; deliveries: number };
 }
 
+interface SystemUser {
+  id: number;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  phone: string | null;
+}
+
 interface CollectorFormData {
+  userId: number | null;
   name: string;
   phone: string;
   email: string;
@@ -72,6 +82,7 @@ interface CollectorFormData {
 }
 
 const initialFormData: CollectorFormData = {
+  userId: null,
   name: "",
   phone: "",
   email: "",
@@ -94,6 +105,10 @@ export default function CollectorsPage() {
   const [saving, setSaving] = useState(false);
   const [areasInput, setAreasInput] = useState("");
 
+  // System users for selection
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<SystemUser[]>([]);
+
   // Fetch collectors
   const fetchCollectors = useCallback(async () => {
     try {
@@ -110,9 +125,36 @@ export default function CollectorsPage() {
     }
   }, []);
 
+  // Fetch system users
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/users?limit=100");
+      const data = await res.json();
+      if (data.success) {
+        setSystemUsers(data.data);
+      }
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchCollectors();
-  }, [fetchCollectors]);
+    fetchUsers();
+  }, [fetchCollectors, fetchUsers]);
+
+  // Update available users when collectors or dialog changes
+  useEffect(() => {
+    // Filter out users already linked to collectors (except current editing one)
+    const linkedUserIds = collectors
+      .filter((c) => c.userId && c.id !== editingId)
+      .map((c) => c.userId);
+
+    const available = systemUsers.filter(
+      (user) => !linkedUserIds.includes(user.id)
+    );
+    setAvailableUsers(available);
+  }, [collectors, systemUsers, editingId]);
 
   // Open dialog for new collector
   const handleNew = () => {
@@ -126,6 +168,7 @@ export default function CollectorsPage() {
   const handleEdit = (collector: Collector) => {
     setEditingId(collector.id);
     setFormData({
+      userId: collector.userId,
       name: collector.name,
       phone: collector.phone,
       email: collector.email || "",
@@ -136,6 +179,31 @@ export default function CollectorsPage() {
     });
     setAreasInput((collector.assignedAreas || []).join(", "));
     setIsDialogOpen(true);
+  };
+
+  // Handle user selection - auto-fill name, email, phone
+  const handleUserSelect = (userId: string) => {
+    if (userId === "none") {
+      setFormData({
+        ...formData,
+        userId: null,
+        name: "",
+        email: "",
+        phone: "",
+      });
+      return;
+    }
+
+    const selectedUser = systemUsers.find((u) => u.id === parseInt(userId));
+    if (selectedUser) {
+      setFormData({
+        ...formData,
+        userId: selectedUser.id,
+        name: `${selectedUser.firstName || ""} ${selectedUser.lastName || ""}`.trim() || selectedUser.email,
+        email: selectedUser.email,
+        phone: selectedUser.phone || "",
+      });
+    }
   };
 
   // Handle form submit
@@ -217,11 +285,18 @@ export default function CollectorsPage() {
       sortable: true,
       render: (collector) => (
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-            <User className="h-5 w-5 text-primary" />
+          <div className={`flex h-10 w-10 items-center justify-center rounded-full ${collector.user ? "bg-green-100" : "bg-primary/10"}`}>
+            <User className={`h-5 w-5 ${collector.user ? "text-green-600" : "text-primary"}`} />
           </div>
           <div>
-            <div className="font-medium">{collector.name}</div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{collector.name}</span>
+              {collector.user && (
+                <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                  System User
+                </Badge>
+              )}
+            </div>
             {collector.email && (
               <div className="flex items-center gap-1 text-sm text-muted-foreground">
                 <Mail className="h-3 w-3" />
@@ -356,46 +431,79 @@ export default function CollectorsPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>
               {editingId ? "Edit Collector" : "Add Collector"}
             </DialogTitle>
             <DialogDescription>
               {editingId
                 ? "Update collector information"
-                : "Add a new collector for pickups and deliveries"}
+                : "Select a system user or enter details manually"}
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-4 pr-2">
+            {/* User Selection */}
             <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                placeholder="Enter collector name"
-                required
-              />
+              <Label htmlFor="userId">Link to System User</Label>
+              <Select
+                value={formData.userId?.toString() || "none"}
+                onValueChange={handleUserSelect}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a user (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">-- Manual entry --</SelectItem>
+                  {availableUsers.map((user) => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.firstName || user.lastName
+                        ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
+                        : user.email}
+                      {" "}({user.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {formData.userId && (
+                <p className="text-xs text-green-600">
+                  ✓ Linked to system user - can login to app
+                </p>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone *</Label>
-              <Input
-                id="phone"
-                value={formData.phone}
-                onChange={(e) =>
-                  setFormData({ ...formData, phone: e.target.value })
-                }
-                placeholder="Enter phone number"
-                required
-              />
+            {/* Name & Phone in one row */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  placeholder="Collector name"
+                  required
+                  disabled={!!formData.userId}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="phone">Phone *</Label>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) =>
+                    setFormData({ ...formData, phone: e.target.value })
+                  }
+                  placeholder="Phone number"
+                  required
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
+            {/* Email */}
+            <div className="space-y-1">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
@@ -404,12 +512,14 @@ export default function CollectorsPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, email: e.target.value })
                 }
-                placeholder="Enter email address"
+                placeholder="Email address"
+                disabled={!!formData.userId}
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
+            {/* Vehicle Info in one row */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
                 <Label htmlFor="vehicleNumber">Vehicle Number</Label>
                 <Input
                   id="vehicleNumber"
@@ -417,11 +527,10 @@ export default function CollectorsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, vehicleNumber: e.target.value })
                   }
-                  placeholder="e.g., MH12AB1234"
+                  placeholder="MH12AB1234"
                 />
               </div>
-
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="vehicleType">Vehicle Type</Label>
                 <Input
                   id="vehicleType"
@@ -429,59 +538,58 @@ export default function CollectorsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, vehicleType: e.target.value })
                   }
-                  placeholder="e.g., Bike, Van"
+                  placeholder="Bike, Van, etc."
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="areas">Assigned Areas</Label>
-              <Input
-                id="areas"
-                value={areasInput}
-                onChange={(e) => setAreasInput(e.target.value)}
-                placeholder="Enter areas, comma separated"
-              />
-              <p className="text-xs text-muted-foreground">
-                Separate multiple areas with commas
-              </p>
+            {/* Areas & Status in one row */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="areas">Assigned Areas</Label>
+                <Input
+                  id="areas"
+                  value={areasInput}
+                  onChange={(e) => setAreasInput(e.target.value)}
+                  placeholder="Area1, Area2"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={formData.status}
+                  onValueChange={(value) =>
+                    setFormData({
+                      ...formData,
+                      status: value as CollectorFormData["status"],
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+                    <SelectItem value="ON_LEAVE">On Leave</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(value) =>
-                  setFormData({
-                    ...formData,
-                    status: value as CollectorFormData["status"],
-                  })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ACTIVE">Active</SelectItem>
-                  <SelectItem value="INACTIVE">Inactive</SelectItem>
-                  <SelectItem value="ON_LEAVE">On Leave</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Saving..." : editingId ? "Update" : "Create"}
-              </Button>
-            </DialogFooter>
           </form>
+
+          <DialogFooter className="flex-shrink-0 border-t pt-4 mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={saving}>
+              {saving ? "Saving..." : editingId ? "Update" : "Create"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -284,17 +284,6 @@ export async function POST(request: NextRequest) {
       return errorResponse("Warranty card not found", "WARRANTY_CARD_NOT_FOUND", 400);
     }
 
-    // Check if warranty is still valid
-    const now = new Date();
-    const warrantyEndDate = new Date(warrantyCard.warrantyEndDate);
-    if (warrantyEndDate < now) {
-      return errorResponse(
-        "Warranty has expired. Cannot create claim for expired warranty.",
-        "WARRANTY_EXPIRED",
-        400
-      );
-    }
-
     // Check if warranty card is void
     if (warrantyCard.status === "VOID") {
       return errorResponse(
@@ -302,6 +291,44 @@ export async function POST(request: NextRequest) {
         "WARRANTY_VOID",
         400
       );
+    }
+
+    // Phase 5: Determine warranty status
+    const now = new Date();
+    const warrantyEndDate = new Date(warrantyCard.warrantyEndDate);
+    const isWarrantyExpired = warrantyEndDate < now;
+
+    // Calculate warranty status for response
+    let warrantyStatus: "IN_WARRANTY" | "EXPIRED" | "OVERRIDDEN" = "IN_WARRANTY";
+    let isUnderWarranty = true;
+    let requiresQuotation = validatedData.requiresQuotation || false;
+
+    if (isWarrantyExpired) {
+      warrantyStatus = "EXPIRED";
+      isUnderWarranty = false;
+      // Automatically require quotation for expired warranty unless overridden
+      if (!validatedData.warrantyOverride) {
+        requiresQuotation = true;
+      }
+    }
+
+    // Handle warranty override
+    if (validatedData.warrantyOverride) {
+      // If warranty is expired but user wants to treat as warranty claim
+      if (isWarrantyExpired && validatedData.isUnderWarranty) {
+        warrantyStatus = "OVERRIDDEN";
+        isUnderWarranty = true;
+        requiresQuotation = validatedData.requiresQuotation || false;
+      }
+      // If warranty is valid but user wants to treat as non-warranty
+      else if (!isWarrantyExpired && !validatedData.isUnderWarranty) {
+        warrantyStatus = "OVERRIDDEN";
+        isUnderWarranty = false;
+        requiresQuotation = validatedData.requiresQuotation || true;
+      }
+    } else {
+      // Use provided values or defaults
+      isUnderWarranty = isWarrantyExpired ? false : validatedData.isUnderWarranty;
     }
 
     // Generate claim number
@@ -340,6 +367,12 @@ export async function POST(request: NextRequest) {
           createdBy: user.id,
           // Auto-assign to user if START step has autoAssignTo
           assignedTo: startStep?.autoAssignTo || null,
+          // Phase 5: Warranty validation fields
+          isUnderWarranty,
+          warrantyOverrideBy: validatedData.warrantyOverride ? user.id : null,
+          warrantyOverrideAt: validatedData.warrantyOverride ? new Date() : null,
+          warrantyOverrideReason: validatedData.warrantyOverrideReason || null,
+          requiresQuotation,
           claimHistory: {
             create: {
               fromStatus: null,
@@ -347,12 +380,15 @@ export async function POST(request: NextRequest) {
               workflowStepId: startStep?.id || null,
               actionType: "claim_created",
               performedBy: user.id,
-              notes: `Claim created. Issue: ${validatedData.issueDescription.substring(0, 100)}`,
+              notes: `Claim created. Issue: ${validatedData.issueDescription.substring(0, 100)}. Warranty: ${warrantyStatus}${requiresQuotation ? ". Quotation required." : ""}`,
               metadata: matchedWorkflow ? {
                 workflowId: matchedWorkflow.id,
                 workflowName: matchedWorkflow.name,
                 triggerType: matchedWorkflow.triggerType,
                 autoAssigned: true,
+                warrantyStatus,
+                isUnderWarranty,
+                requiresQuotation,
               } as Prisma.InputJsonValue : Prisma.DbNull,
             },
           },

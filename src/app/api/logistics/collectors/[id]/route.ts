@@ -12,6 +12,7 @@ import {
 } from "@/lib/api-utils";
 import { updateCollectorSchema } from "@/lib/validations";
 import { ZodError } from "zod";
+import { COLLECTOR_PERMISSIONS } from "@/lib/constants/permissions";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -159,15 +160,46 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (validatedData.assignedAreas !== undefined) updateData.assignedAreas = validatedData.assignedAreas || undefined;
     if (validatedData.status !== undefined) updateData.status = validatedData.status;
 
-    // Update collector
-    const collector = await prisma.collector.update({
-      where: { id: collectorId },
-      data: updateData,
-      include: {
-        user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+    // Check if we're linking a new user
+    const isLinkingNewUser = validatedData.userId && validatedData.userId !== existingCollector.userId;
+
+    // Update collector and assign permissions in a transaction
+    const collector = await prisma.$transaction(async (tx) => {
+      // Update collector
+      const updatedCollector = await tx.collector.update({
+        where: { id: collectorId },
+        data: updateData,
+        include: {
+          user: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
         },
-      },
+      });
+
+      // If linking a new user, add collector permissions to their role
+      if (isLinkingNewUser && validatedData.userId) {
+        // Get user with their role
+        const linkedUser = await tx.user.findUnique({
+          where: { id: validatedData.userId },
+          include: { role: true },
+        });
+
+        if (linkedUser && linkedUser.role) {
+          // Merge existing role permissions with collector permissions (avoid duplicates)
+          const currentPermissions = (linkedUser.role.permissions as string[]) || [];
+          const newPermissions = Array.from(
+            new Set([...currentPermissions, ...COLLECTOR_PERMISSIONS])
+          );
+
+          // Update role permissions
+          await tx.role.update({
+            where: { id: linkedUser.roleId },
+            data: { permissions: newPermissions },
+          });
+        }
+      }
+
+      return updatedCollector;
     });
 
     return successResponse(collector);

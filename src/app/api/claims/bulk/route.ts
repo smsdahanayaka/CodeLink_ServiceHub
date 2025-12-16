@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const user = await requireAuth();
 
     // Check permission
-    if (!user.permissions.includes("claims.update")) {
+    if (!user.permissions.includes("claims.edit")) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
@@ -248,7 +248,7 @@ export async function PUT(request: NextRequest) {
     const user = await requireAuth();
 
     // Check permission
-    if (!user.permissions.includes("claims.update")) {
+    if (!user.permissions.includes("claims.edit")) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 

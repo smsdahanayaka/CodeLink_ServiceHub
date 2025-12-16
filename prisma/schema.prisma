@@ -80,6 +80,12 @@ model Tenant {
   auditLogs             AuditLog[]
   tenantSettings        TenantSetting[]
   fileUploads           FileUpload[]
+  // Phase 5 relations
+  inventoryCategories   InventoryCategory[]
+  inventoryItems        InventoryItem[]
+  inventoryTransactions InventoryTransaction[]
+  claimQuotations       ClaimQuotation[]
+  claimInvoices         ClaimInvoice[]
 
   @@map("tenants")
 }
@@ -154,6 +160,14 @@ model User {
   // Trip relations
   receivedCollectionTrips CollectionTrip[] @relation("CollectionTripReceiver")
   createdDeliveryTrips    DeliveryTrip[]   @relation("DeliveryTripCreator")
+  // Phase 5 relations
+  inventoryTransactions   InventoryTransaction[]
+  createdQuotations       ClaimQuotation[]
+  createdInvoices         ClaimInvoice[]
+  claimPartsIssued        ClaimPart[]      @relation("ClaimPartIssuedBy")
+  claimPartsCreated       ClaimPart[]      @relation("ClaimPartCreatedBy")
+  claimServiceCharges     ClaimServiceCharge[]
+  warrantyOverrides       WarrantyClaim[]  @relation("WarrantyOverrideBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -376,6 +390,14 @@ model WarrantyClaim {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  // Phase 5: Warranty validation fields
+  isUnderWarranty       Boolean   @default(true)
+  warrantyOverrideBy    Int?
+  warrantyOverrideAt    DateTime?
+  warrantyOverrideReason String?  @db.Text
+  requiresQuotation     Boolean   @default(false)
+  quotationApprovedAt   DateTime?
+
   // Relations
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   warrantyCard    WarrantyCard   @relation(fields: [warrantyCardId], references: [id])
@@ -383,6 +405,7 @@ model WarrantyClaim {
   currentStep     WorkflowStep?  @relation(fields: [currentStepId], references: [id])
   assignedUser    User?          @relation("AssignedToUser", fields: [assignedTo], references: [id])
   createdByUser   User?          @relation("CreatedByUser", fields: [createdBy], references: [id])
+  warrantyOverrideUser User?     @relation("WarrantyOverrideBy", fields: [warrantyOverrideBy], references: [id])
   claimHistory    ClaimHistory[]
   pickups         Pickup[]
   deliveries      Delivery[]
@@ -390,6 +413,11 @@ model WarrantyClaim {
   subTasks        ClaimSubTask[]
   collectionItem  CollectionItem?
   deliveryItems   DeliveryItem[]
+  // Phase 5 relations
+  quotations      ClaimQuotation[]
+  invoice         ClaimInvoice?
+  parts           ClaimPart[]
+  serviceCharges  ClaimServiceCharge[]
 
   @@unique([tenantId, claimNumber])
   @@index([tenantId, currentStatus])
@@ -1139,4 +1167,432 @@ model FileUpload {
   uploadedUser User?  @relation(fields: [uploadedBy], references: [id])
 
   @@map("file_uploads")
+}
+
+// ===========================================
+// INVENTORY MANAGEMENT (Phase 5)
+// ===========================================
+
+// Inventory Item Categories
+model InventoryCategory {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  parentId    Int?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent      InventoryCategory?  @relation("InventoryCategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    InventoryCategory[] @relation("InventoryCategoryHierarchy")
+  items       InventoryItem[]
+
+  @@map("inventory_categories")
+}
+
+// Inventory Items (Parts/Components/Spare Parts)
+model InventoryItem {
+  id               Int      @id @default(autoincrement())
+  tenantId         Int
+  categoryId       Int?
+
+  sku              String   @db.VarChar(100)
+  name             String   @db.VarChar(255)
+  description      String?  @db.Text
+
+  // Stock management
+  quantity         Decimal  @default(0) @db.Decimal(10, 2)
+  reservedQuantity Decimal  @default(0) @db.Decimal(10, 2)
+  reorderLevel     Decimal  @default(0) @db.Decimal(10, 2)
+  reorderQuantity  Decimal  @default(0) @db.Decimal(10, 2)
+
+  // Pricing
+  costPrice        Decimal  @default(0) @db.Decimal(12, 2)
+  sellingPrice     Decimal  @default(0) @db.Decimal(12, 2)
+
+  // Additional info
+  unit             String   @default("pcs") @db.VarChar(50)
+  location         String?  @db.VarChar(255)
+  supplier         String?  @db.VarChar(255)
+  barcode          String?  @db.VarChar(100)
+
+  isActive         Boolean  @default(true)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category         InventoryCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transactions     InventoryTransaction[]
+  quotationItems   QuotationItem[]
+  claimParts       ClaimPart[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, isActive])
+  @@map("inventory_items")
+}
+
+// Inventory Transactions (Stock movements)
+model InventoryTransaction {
+  id              Int                      @id @default(autoincrement())
+  tenantId        Int
+  itemId          Int
+
+  transactionType InventoryTransactionType
+  quantity        Decimal                  @db.Decimal(10, 2)
+
+  // Reference to source document
+  referenceType   String?                  @db.VarChar(50)
+  referenceId     Int?
+
+  // Pricing at time of transaction
+  unitCost        Decimal?                 @db.Decimal(12, 2)
+  totalCost       Decimal?                 @db.Decimal(12, 2)
+
+  // Stock levels after transaction
+  previousQuantity Decimal                 @db.Decimal(10, 2)
+  newQuantity     Decimal                  @db.Decimal(10, 2)
+
+  notes           String?                  @db.Text
+  createdBy       Int
+  createdAt       DateTime                 @default(now())
+
+  // Relations
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  item            InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdByUser   User          @relation(fields: [createdBy], references: [id])
+
+  @@index([tenantId, itemId])
+  @@index([referenceType, referenceId])
+  @@map("inventory_transactions")
+}
+
+enum InventoryTransactionType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  RESERVED
+  UNRESERVED
+  RETURN
+}
+
+// ===========================================
+// QUOTATION SYSTEM (Phase 5)
+// ===========================================
+
+// Quotation for repair cost estimation
+model ClaimQuotation {
+  id              Int             @id @default(autoincrement())
+  tenantId        Int
+  claimId         Int
+
+  quotationNumber String          @db.VarChar(100)
+
+  status          QuotationStatus @default(DRAFT)
+
+  // Amounts
+  subtotal        Decimal         @db.Decimal(12, 2)
+  taxRate         Decimal         @default(0) @db.Decimal(5, 2)
+  taxAmount       Decimal         @default(0) @db.Decimal(12, 2)
+  discountType    DiscountType?
+  discountValue   Decimal         @default(0) @db.Decimal(12, 2)
+  discountAmount  Decimal         @default(0) @db.Decimal(12, 2)
+  totalAmount     Decimal         @db.Decimal(12, 2)
+
+  // Validity
+  validUntil      DateTime?
+
+  // Customer response tracking
+  sentAt          DateTime?
+  sentVia         String?         @db.VarChar(50)
+  viewedAt        DateTime?
+  approvedAt      DateTime?
+  approvedBy      String?         @db.VarChar(255)
+  rejectedAt      DateTime?
+  rejectionReason String?         @db.Text
+
+  notes           String?         @db.Text
+  termsAndConditions String?      @db.Text
+
+  createdBy       Int
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  claim           WarrantyClaim   @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  createdByUser   User            @relation(fields: [createdBy], references: [id])
+  items           QuotationItem[]
+  invoice         ClaimInvoice?
+
+  @@unique([tenantId, quotationNumber])
+  @@index([claimId])
+  @@map("claim_quotations")
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  VIEWED
+  APPROVED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+// Individual items in quotation
+model QuotationItem {
+  id              Int               @id @default(autoincrement())
+  quotationId     Int
+
+  itemType        QuotationItemType
+
+  // For inventory items
+  inventoryItemId Int?
+
+  // Item details
+  name            String            @db.VarChar(255)
+  description     String?           @db.Text
+  sku             String?           @db.VarChar(100)
+
+  quantity        Decimal           @db.Decimal(10, 2)
+  unitPrice       Decimal           @db.Decimal(12, 2)
+  totalPrice      Decimal           @db.Decimal(12, 2)
+
+  isWarrantyCovered Boolean         @default(false)
+  warrantyNotes   String?           @db.Text
+
+  sortOrder       Int               @default(0)
+  createdAt       DateTime          @default(now())
+
+  // Relations
+  quotation       ClaimQuotation    @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  inventoryItem   InventoryItem?    @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+
+  @@index([quotationId])
+  @@map("quotation_items")
+}
+
+enum QuotationItemType {
+  PART
+  SERVICE
+  LABOR
+  OTHER
+}
+
+// ===========================================
+// CLAIM PARTS & SERVICE CHARGES (Phase 5)
+// ===========================================
+
+// Parts/Items used in claim repair
+model ClaimPart {
+  id              Int           @id @default(autoincrement())
+  claimId         Int
+
+  partType        ClaimPartType @default(INVENTORY)
+
+  // For inventory items
+  inventoryItemId Int?
+
+  // Part details
+  name            String        @db.VarChar(255)
+  description     String?       @db.Text
+  sku             String?       @db.VarChar(100)
+
+  quantity        Decimal       @db.Decimal(10, 2)
+  unitCost        Decimal       @default(0) @db.Decimal(12, 2)
+  unitPrice       Decimal       @db.Decimal(12, 2)
+  totalPrice      Decimal       @db.Decimal(12, 2)
+
+  // Warranty coverage
+  isWarrantyCovered Boolean     @default(false)
+
+  // Issue tracking (for new items being given to customer)
+  isNewItemIssue  Boolean       @default(false)
+  isIssued        Boolean       @default(false)
+  issuedAt        DateTime?
+  issuedBy        Int?
+
+  notes           String?       @db.Text
+  createdBy       Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  claim           WarrantyClaim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  issuedByUser    User?          @relation("ClaimPartIssuedBy", fields: [issuedBy], references: [id])
+  createdByUser   User           @relation("ClaimPartCreatedBy", fields: [createdBy], references: [id])
+  invoiceItems    InvoiceItem[]
+
+  @@index([claimId])
+  @@map("claim_parts")
+}
+
+enum ClaimPartType {
+  INVENTORY
+  MANUAL
+}
+
+// Service charges for claim
+model ClaimServiceCharge {
+  id                Int               @id @default(autoincrement())
+  claimId           Int
+
+  chargeType        ServiceChargeType
+  description       String            @db.VarChar(255)
+  amount            Decimal           @db.Decimal(12, 2)
+
+  isWarrantyCovered Boolean           @default(false)
+
+  notes             String?           @db.Text
+  createdBy         Int
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Relations
+  claim             WarrantyClaim     @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  createdByUser     User              @relation(fields: [createdBy], references: [id])
+  invoiceItems      InvoiceItem[]
+
+  @@index([claimId])
+  @@map("claim_service_charges")
+}
+
+enum ServiceChargeType {
+  LABOR
+  SERVICE_VISIT
+  TRANSPORTATION
+  DIAGNOSIS
+  INSTALLATION
+  OTHER
+}
+
+// ===========================================
+// INVOICE SYSTEM (Phase 5)
+// ===========================================
+
+// Final Invoice for claim
+model ClaimInvoice {
+  id              Int           @id @default(autoincrement())
+  tenantId        Int
+  claimId         Int           @unique
+  quotationId     Int?          @unique
+
+  invoiceNumber   String        @db.VarChar(100)
+  invoiceDate     DateTime      @default(now())
+
+  status          InvoiceStatus @default(DRAFT)
+
+  // Customer details (snapshot at invoice time)
+  customerName    String        @db.VarChar(255)
+  customerPhone   String        @db.VarChar(50)
+  customerEmail   String?       @db.VarChar(255)
+  customerAddress String?       @db.Text
+
+  // Amounts
+  subtotal        Decimal       @db.Decimal(12, 2)
+  taxRate         Decimal       @default(0) @db.Decimal(5, 2)
+  taxAmount       Decimal       @default(0) @db.Decimal(12, 2)
+  discountType    DiscountType?
+  discountValue   Decimal       @default(0) @db.Decimal(12, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount     Decimal       @db.Decimal(12, 2)
+
+  // Warranty covered items total (for reference)
+  warrantyCoveredAmount Decimal @default(0) @db.Decimal(12, 2)
+
+  // Payment tracking
+  paidAmount      Decimal       @default(0) @db.Decimal(12, 2)
+  paymentStatus   PaymentStatus @default(UNPAID)
+  paymentMethod   String?       @db.VarChar(50)
+  paymentReference String?      @db.VarChar(255)
+  paidAt          DateTime?
+
+  // Delivery readiness
+  isReadyForDelivery Boolean    @default(false)
+
+  notes           String?       @db.Text
+  termsAndConditions String?    @db.Text
+
+  pdfUrl          String?       @db.VarChar(500)
+
+  createdBy       Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  claim           WarrantyClaim   @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  quotation       ClaimQuotation? @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  createdByUser   User            @relation(fields: [createdBy], references: [id])
+  items           InvoiceItem[]
+
+  @@unique([tenantId, invoiceNumber])
+  @@map("claim_invoices")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  GENERATED
+  SENT
+  PAID
+  PARTIALLY_PAID
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+// Invoice line items
+model InvoiceItem {
+  id                   Int             @id @default(autoincrement())
+  invoiceId            Int
+
+  itemType             InvoiceItemType
+
+  // Reference to source
+  claimPartId          Int?
+  claimServiceChargeId Int?
+
+  name                 String          @db.VarChar(255)
+  description          String?         @db.Text
+  sku                  String?         @db.VarChar(100)
+
+  quantity             Decimal         @db.Decimal(10, 2)
+  unitPrice            Decimal         @db.Decimal(12, 2)
+  totalPrice           Decimal         @db.Decimal(12, 2)
+
+  isWarrantyCovered    Boolean         @default(false)
+
+  sortOrder            Int             @default(0)
+  createdAt            DateTime        @default(now())
+
+  // Relations
+  invoice              ClaimInvoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  claimPart            ClaimPart?          @relation(fields: [claimPartId], references: [id], onDelete: SetNull)
+  claimServiceCharge   ClaimServiceCharge? @relation(fields: [claimServiceChargeId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+enum InvoiceItemType {
+  PART
+  SERVICE
+  LABOR
+  OTHER
 }

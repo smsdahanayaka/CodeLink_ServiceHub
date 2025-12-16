@@ -32,6 +32,13 @@ export const PERMISSIONS = {
   "categories.edit": "Edit Categories",
   "categories.delete": "Delete Categories",
 
+  // Inventory Management
+  "inventory.view": "View Inventory",
+  "inventory.create": "Create Inventory Items",
+  "inventory.edit": "Edit Inventory Items",
+  "inventory.delete": "Delete Inventory Items",
+  "inventory.adjust_stock": "Adjust Stock Levels",
+
   // Shops Management
   "shops.view": "View Shops",
   "shops.create": "Create Shops",
@@ -74,6 +81,9 @@ export const PERMISSIONS = {
   "logistics.create_collection": "Create Collection Trips",
   "logistics.receive": "Receive Trips at Service Center",
   "logistics.create_delivery": "Create Delivery Trips",
+  "logistics.my_trips": "View & Manage My Trips",
+  "logistics.collect": "Perform Collections",
+  "logistics.deliver": "Perform Deliveries",
 
   // Notifications Management
   "notifications.view_templates": "View Notification Templates",
@@ -119,6 +129,13 @@ export const PERMISSION_GROUPS = {
     "categories.edit",
     "categories.delete",
   ],
+  "Inventory Management": [
+    "inventory.view",
+    "inventory.create",
+    "inventory.edit",
+    "inventory.delete",
+    "inventory.adjust_stock",
+  ],
   "Shop Management": [
     "shops.view",
     "shops.create",
@@ -161,6 +178,9 @@ export const PERMISSION_GROUPS = {
     "logistics.create_collection",
     "logistics.receive",
     "logistics.create_delivery",
+    "logistics.my_trips",
+    "logistics.collect",
+    "logistics.deliver",
   ],
   "Notifications": [
     "notifications.view_templates",
@@ -170,6 +190,21 @@ export const PERMISSION_GROUPS = {
   "Reports": ["reports.view", "reports.export"],
   "Settings": ["settings.view", "settings.manage"],
 } as const;
+
+// Collector-specific permissions (auto-assigned when user is linked as collector)
+export const COLLECTOR_PERMISSIONS: PermissionKey[] = [
+  "dashboard.view",
+  "shops.view",
+  "customers.view",
+  "products.view",
+  "warranty_cards.view",
+  "claims.view",
+  "claims.view_assigned",
+  "logistics.view",
+  "logistics.my_trips",
+  "logistics.collect",
+  "logistics.deliver",
+];
 
 // Default role permissions
 export const DEFAULT_ROLE_PERMISSIONS = {
@@ -186,6 +221,10 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     "categories.view",
     "categories.create",
     "categories.edit",
+    "inventory.view",
+    "inventory.create",
+    "inventory.edit",
+    "inventory.adjust_stock",
     "shops.view",
     "shops.create",
     "shops.edit",
@@ -217,6 +256,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
   technician: [
     "dashboard.view",
     "products.view",
+    "inventory.view",
     "customers.view",
     "warranty_cards.view",
     "claims.view",

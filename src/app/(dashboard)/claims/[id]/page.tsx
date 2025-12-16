@@ -36,7 +36,7 @@ import { toast } from "sonner";
 import { format, formatDistanceToNow, differenceInHours, addHours } from "date-fns";
 
 import { PageHeader } from "@/components/layout";
-import { SubTaskList, NextUserSelectionModal, StepAssignmentMapper } from "@/components/claims";
+import { SubTaskList, NextUserSelectionModal, StepAssignmentMapper, ClaimFinalizationSection } from "@/components/claims";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -116,6 +116,12 @@ interface ClaimDetail {
   resolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // Phase 5: Warranty validation
+  isUnderWarranty: boolean;
+  warrantyOverrideBy: number | null;
+  warrantyOverrideAt: string | null;
+  warrantyOverrideReason: string | null;
+  requiresQuotation: boolean;
   warrantyCard: {
     id: number;
     cardNumber: string;
@@ -938,6 +944,13 @@ export default function ClaimDetailPage({
               </CardContent>
             </Card>
           )}
+
+          {/* Claim Finalization Section - Shows for all claims to manage parts, charges, and invoices */}
+          <ClaimFinalizationSection
+            claimId={claim.id}
+            isUnderWarranty={claim.isUnderWarranty ?? true}
+            isWorkflowCompleted={claim.currentStep?.stepType === "END"}
+          />
 
           {/* Claim Status Card */}
           <Card>
