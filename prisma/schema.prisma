@@ -142,6 +142,13 @@ model User {
   notifications        Notification[]
   auditLogs            AuditLog[]
   fileUploads          FileUpload[]
+  // Step assignment relations
+  stepAssignments      ClaimStepAssignment[] @relation("StepAssignedUser")
+  stepAssignmentsMade  ClaimStepAssignment[] @relation("StepAssignedBy")
+  // Sub-task relations
+  assignedSubTasks     ClaimSubTask[]  @relation("SubTaskAssignee")
+  completedSubTasks    ClaimSubTask[]  @relation("SubTaskCompletedBy")
+  createdSubTasks      ClaimSubTask[]  @relation("SubTaskCreatedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -361,15 +368,17 @@ model WarrantyClaim {
   updatedAt        DateTime @updatedAt
 
   // Relations
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  warrantyCard  WarrantyCard   @relation(fields: [warrantyCardId], references: [id])
-  workflow      Workflow?      @relation(fields: [workflowId], references: [id])
-  currentStep   WorkflowStep?  @relation(fields: [currentStepId], references: [id])
-  assignedUser  User?          @relation("AssignedToUser", fields: [assignedTo], references: [id])
-  createdByUser User?          @relation("CreatedByUser", fields: [createdBy], references: [id])
-  claimHistory  ClaimHistory[]
-  pickups       Pickup[]
-  deliveries    Delivery[]
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warrantyCard    WarrantyCard   @relation(fields: [warrantyCardId], references: [id])
+  workflow        Workflow?      @relation(fields: [workflowId], references: [id])
+  currentStep     WorkflowStep?  @relation(fields: [currentStepId], references: [id])
+  assignedUser    User?          @relation("AssignedToUser", fields: [assignedTo], references: [id])
+  createdByUser   User?          @relation("CreatedByUser", fields: [createdBy], references: [id])
+  claimHistory    ClaimHistory[]
+  pickups         Pickup[]
+  deliveries      Delivery[]
+  stepAssignments ClaimStepAssignment[]
+  subTasks        ClaimSubTask[]
 
   @@unique([tenantId, claimNumber])
   @@index([tenantId, currentStatus])
@@ -395,6 +404,73 @@ enum ClaimLocation {
   SHOP
   IN_TRANSIT
   SERVICE_CENTER
+}
+
+// Claim Step Assignments (Per-claim user mapping to workflow steps)
+model ClaimStepAssignment {
+  id              Int      @id @default(autoincrement())
+  claimId         Int
+  workflowStepId  Int
+  assignedUserId  Int
+  assignedBy      Int
+  notes           String?  @db.Text
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  claim          WarrantyClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  workflowStep   WorkflowStep  @relation(fields: [workflowStepId], references: [id], onDelete: Cascade)
+  assignedUser   User          @relation("StepAssignedUser", fields: [assignedUserId], references: [id])
+  assignedByUser User          @relation("StepAssignedBy", fields: [assignedBy], references: [id])
+
+  @@unique([claimId, workflowStepId])
+  @@index([claimId])
+  @@index([assignedUserId])
+  @@map("claim_step_assignments")
+}
+
+// Claim Sub-Tasks (Tasks within a workflow step)
+model ClaimSubTask {
+  id              Int             @id @default(autoincrement())
+  claimId         Int
+  workflowStepId  Int
+  title           String          @db.VarChar(255)
+  description     String?         @db.Text
+  assignedTo      Int?
+  status          SubTaskStatus   @default(PENDING)
+  priority        SubTaskPriority @default(MEDIUM)
+  dueDate         DateTime?
+  completedAt     DateTime?
+  completedBy     Int?
+  createdBy       Int
+  sortOrder       Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  claim           WarrantyClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  workflowStep    WorkflowStep  @relation(fields: [workflowStepId], references: [id], onDelete: Cascade)
+  assignedUser    User?         @relation("SubTaskAssignee", fields: [assignedTo], references: [id])
+  completedByUser User?         @relation("SubTaskCompletedBy", fields: [completedBy], references: [id])
+  createdByUser   User          @relation("SubTaskCreatedBy", fields: [createdBy], references: [id])
+
+  @@index([claimId, workflowStepId])
+  @@index([assignedTo, status])
+  @@map("claim_sub_tasks")
+}
+
+enum SubTaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum SubTaskPriority {
+  LOW
+  MEDIUM
+  HIGH
 }
 
 // Claim History (Audit Trail)
@@ -458,34 +534,37 @@ enum WorkflowTriggerType {
 
 // Workflow Steps
 model WorkflowStep {
-  id                  Int      @id @default(autoincrement())
-  workflowId          Int
-  name                String   @db.VarChar(255)
-  description         String?  @db.Text
-  stepOrder           Int
-  stepType            StepType @default(ACTION)
-  statusName          String   @db.VarChar(100)
-  config              Json?
-  requiredRoleId      Int?
-  requiredPermissions Json?
-  slaHours            Int?
-  slaWarningHours     Int?
-  autoAssignTo        Int?
-  formFields          Json?
-  isOptional          Boolean  @default(false)
-  canSkip             Boolean  @default(false)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                       Int      @id @default(autoincrement())
+  workflowId               Int
+  name                     String   @db.VarChar(255)
+  description              String?  @db.Text
+  stepOrder                Int
+  stepType                 StepType @default(ACTION)
+  statusName               String   @db.VarChar(100)
+  config                   Json?
+  requiredRoleId           Int?
+  requiredPermissions      Json?
+  slaHours                 Int?
+  slaWarningHours          Int?
+  autoAssignTo             Int?
+  formFields               Json?
+  isOptional               Boolean  @default(false)
+  canSkip                  Boolean  @default(false)
+  requireNextUserSelection Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   // Relations
-  workflow           Workflow           @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  requiredRole       Role?              @relation(fields: [requiredRoleId], references: [id])
-  autoAssignUser     User?              @relation(fields: [autoAssignTo], references: [id])
-  transitionsFrom    StepTransition[]   @relation("FromStep")
-  transitionsTo      StepTransition[]   @relation("ToStep")
+  workflow           Workflow              @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  requiredRole       Role?                 @relation(fields: [requiredRoleId], references: [id])
+  autoAssignUser     User?                 @relation(fields: [autoAssignTo], references: [id])
+  transitionsFrom    StepTransition[]      @relation("FromStep")
+  transitionsTo      StepTransition[]      @relation("ToStep")
   stepNotifications  StepNotification[]
   claimHistory       ClaimHistory[]
   currentClaims      WarrantyClaim[]
+  claimAssignments   ClaimStepAssignment[]
+  subTasks           ClaimSubTask[]
 
   @@map("workflow_steps")
 }

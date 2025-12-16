@@ -378,3 +378,62 @@ export type CreateDeliveryInput = z.infer<typeof createDeliverySchema>;
 export type UpdateDeliveryInput = z.infer<typeof updateDeliverySchema>;
 export type CompleteDeliveryInput = z.infer<typeof completeDeliverySchema>;
 export type FailDeliveryInput = z.infer<typeof failDeliverySchema>;
+
+// ==================== Claim Step Assignment Schemas ====================
+
+export const createStepAssignmentSchema = z.object({
+  workflowStepId: z.number().min(1, "Step ID is required"),
+  assignedUserId: z.number().min(1, "User ID is required"),
+  notes: z.string().optional(),
+});
+
+export const bulkStepAssignmentSchema = z.object({
+  assignments: z.array(createStepAssignmentSchema).min(1, "At least one assignment required"),
+});
+
+export type CreateStepAssignmentInput = z.infer<typeof createStepAssignmentSchema>;
+export type BulkStepAssignmentInput = z.infer<typeof bulkStepAssignmentSchema>;
+
+// ==================== Claim Sub-Task Schemas ====================
+
+export const createSubTaskSchema = z.object({
+  workflowStepId: z.number().min(1, "Step ID is required"),
+  title: z.string().min(1, "Title is required").max(255),
+  description: z.string().optional(),
+  assignedTo: z.number().nullable().optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+  dueDate: z.string().optional(), // ISO date string
+});
+
+export const updateSubTaskSchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  description: z.string().optional(),
+  assignedTo: z.number().nullable().optional(),
+  status: z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+  dueDate: z.string().nullable().optional(),
+});
+
+export const completeSubTaskSchema = z.object({
+  notes: z.string().optional(),
+});
+
+export type CreateSubTaskInput = z.infer<typeof createSubTaskSchema>;
+export type UpdateSubTaskInput = z.infer<typeof updateSubTaskSchema>;
+export type CompleteSubTaskInput = z.infer<typeof completeSubTaskSchema>;
+
+// ==================== Enhanced Workflow Execute Schema ====================
+
+export const enhancedExecuteWorkflowStepSchema = z.object({
+  claimId: z.number().min(1, "Claim ID is required"),
+  stepId: z.number().min(1, "Step ID is required"),
+  action: z.enum(["complete", "skip", "reject", "escalate"]).default("complete"),
+  transitionId: z.number().optional(),
+  formData: z.record(z.string(), z.unknown()).optional(),
+  notes: z.string().optional(),
+  attachments: z.array(z.string()).optional(),
+  nextAssignedUserId: z.number().optional(), // Required if next step has no pre-mapping
+  forceComplete: z.boolean().default(false), // Admin override for pending sub-tasks
+});
+
+export type EnhancedExecuteWorkflowStepInput = z.infer<typeof enhancedExecuteWorkflowStepSchema>;

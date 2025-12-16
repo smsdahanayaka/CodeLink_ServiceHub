@@ -11,7 +11,7 @@ import {
   handleZodError,
   requireAuth,
 } from "@/lib/api-utils";
-import { executeWorkflowStepSchema, assignWorkflowSchema } from "@/lib/validations";
+import { enhancedExecuteWorkflowStepSchema, assignWorkflowSchema } from "@/lib/validations";
 import { ZodError } from "zod";
 import type { WorkflowCondition } from "@/lib/validations";
 import { triggerStepNotifications, escalateClaim } from "@/lib/workflow-notifications";
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = await request.json();
-    const validatedData = executeWorkflowStepSchema.parse(body);
+    const validatedData = enhancedExecuteWorkflowStepSchema.parse(body);
 
     // Verify workflow belongs to tenant
     const workflow = await prisma.workflow.findFirst({
@@ -190,6 +190,27 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return errorResponse("This step cannot be skipped", "CANNOT_SKIP", 400);
     }
 
+    // Check for incomplete sub-tasks (only for complete action, not skip)
+    if (validatedData.action === "complete" && !validatedData.forceComplete) {
+      const pendingSubTasks = await prisma.claimSubTask.findMany({
+        where: {
+          claimId: claim.id,
+          workflowStepId: currentStep.id,
+          status: { in: ["PENDING", "IN_PROGRESS"] },
+        },
+        select: { id: true, title: true, status: true, assignedTo: true },
+      });
+
+      if (pendingSubTasks.length > 0) {
+        return errorResponse(
+          `Cannot complete step: ${pendingSubTasks.length} sub-task(s) are still pending`,
+          "SUBTASKS_INCOMPLETE",
+          400,
+          { pendingSubTasks }
+        );
+      }
+    }
+
     if (validatedData.action === "complete" || validatedData.action === "skip") {
       // Build claim data for condition evaluation
       const claimData = {
@@ -253,6 +274,112 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // Check if next user selection is required
+    let nextStepAssignee: number | null = null;
+
+    if (nextStep && nextStep.stepType !== "END") {
+      // Check for claim-specific step assignment first
+      const claimAssignment = await prisma.claimStepAssignment.findUnique({
+        where: {
+          claimId_workflowStepId: {
+            claimId: claim.id,
+            workflowStepId: nextStep.id,
+          },
+        },
+      });
+
+      if (claimAssignment?.isActive) {
+        // Use claim-specific assignment
+        nextStepAssignee = claimAssignment.assignedUserId;
+      } else if (nextStep.autoAssignTo) {
+        // Use workflow template default
+        nextStepAssignee = nextStep.autoAssignTo;
+      } else if (validatedData.nextAssignedUserId) {
+        // Use user-provided assignment
+        // Validate the user exists and is in the same tenant
+        const assignee = await prisma.user.findFirst({
+          where: {
+            id: validatedData.nextAssignedUserId,
+            tenantId: user.tenantId,
+            status: "ACTIVE",
+          },
+        });
+        if (!assignee) {
+          return errorResponse(
+            "Selected user not found or inactive",
+            "INVALID_USER",
+            400
+          );
+        }
+        nextStepAssignee = validatedData.nextAssignedUserId;
+
+        // Create a claim-specific assignment for future reference
+        await prisma.claimStepAssignment.upsert({
+          where: {
+            claimId_workflowStepId: {
+              claimId: claim.id,
+              workflowStepId: nextStep.id,
+            },
+          },
+          update: {
+            assignedUserId: validatedData.nextAssignedUserId,
+            assignedBy: user.id,
+            isActive: true,
+          },
+          create: {
+            claimId: claim.id,
+            workflowStepId: nextStep.id,
+            assignedUserId: validatedData.nextAssignedUserId,
+            assignedBy: user.id,
+          },
+        });
+      } else {
+        // No assignment found - check if we require next user selection
+        // Get the full next step to check requireNextUserSelection flag
+        const fullNextStep = await prisma.workflowStep.findUnique({
+          where: { id: nextStep.id },
+          select: { requireNextUserSelection: true },
+        });
+
+        if (fullNextStep?.requireNextUserSelection !== false) {
+          // Get eligible users for the next step
+          const eligibleUsers = await prisma.user.findMany({
+            where: {
+              tenantId: user.tenantId,
+              status: "ACTIVE",
+              ...(nextStep.requiredRoleId ? { roleId: nextStep.requiredRoleId } : {}),
+            },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              role: { select: { name: true } },
+            },
+            take: 10,
+          });
+
+          return errorResponse(
+            "Please select the user who will handle the next step",
+            "NEXT_USER_REQUIRED",
+            400,
+            {
+              nextStep: {
+                id: nextStep.id,
+                name: nextStep.name,
+                statusName: nextStep.statusName,
+              },
+              suggestedUsers: eligibleUsers.map((u) => ({
+                id: u.id,
+                firstName: u.firstName,
+                lastName: u.lastName,
+                roleName: u.role.name,
+              })),
+            }
+          );
+        }
+      }
+    }
+
     // Perform the execution in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Record history
@@ -298,8 +425,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         updateData.resolvedAt = new Date();
       }
 
-      // If next step has auto-assign, update assignedTo
-      if (nextStep?.autoAssignTo) {
+      // Set the next step assignee (from claim assignment, template, or user selection)
+      if (nextStepAssignee) {
+        updateData.assignedTo = nextStepAssignee;
+      } else if (nextStep?.autoAssignTo) {
+        // Fallback to workflow template default
         updateData.assignedTo = nextStep.autoAssignTo;
       }
 

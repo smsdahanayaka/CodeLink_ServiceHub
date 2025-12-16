@@ -36,6 +36,7 @@ import { toast } from "sonner";
 import { format, formatDistanceToNow, differenceInHours, addHours } from "date-fns";
 
 import { PageHeader } from "@/components/layout";
+import { SubTaskList, NextUserSelectionModal, StepAssignmentMapper } from "@/components/claims";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -216,6 +217,21 @@ export default function ClaimDetailPage({
   const [workflowFormData, setWorkflowFormData] = useState<Record<string, unknown>>({});
   const [selectedTransitionId, setSelectedTransitionId] = useState<number | null>(null);
   const [workflowNotes, setWorkflowNotes] = useState("");
+
+  // Next user selection states
+  const [nextUserModalOpen, setNextUserModalOpen] = useState(false);
+  const [nextUserModalLoading, setNextUserModalLoading] = useState(false);
+  const [pendingNextStep, setPendingNextStep] = useState<{
+    id: number;
+    name: string;
+    statusName: string;
+  } | null>(null);
+  const [suggestedUsers, setSuggestedUsers] = useState<Array<{
+    id: number;
+    firstName: string | null;
+    lastName: string | null;
+    roleName: string;
+  }>>([]);
 
   // Fetch claim, users, and workflows
   useEffect(() => {
@@ -454,7 +470,7 @@ export default function ClaimDetailPage({
   };
 
   // Handle workflow step execution
-  const handleWorkflowStep = async () => {
+  const handleWorkflowStep = async (nextAssignedUserId?: number) => {
     if (!claim?.workflow || !claim?.currentStep) return;
 
     // For USER_CHOICE transitions, a transition must be selected
@@ -489,6 +505,7 @@ export default function ClaimDetailPage({
           transitionId: selectedTransitionId || undefined,
           formData: Object.keys(workflowFormData).length > 0 ? workflowFormData : undefined,
           notes: workflowNotes || undefined,
+          nextAssignedUserId: nextAssignedUserId || undefined,
         }),
       });
 
@@ -496,23 +513,66 @@ export default function ClaimDetailPage({
       if (data.success) {
         toast.success(`Step ${workflowAction === "skip" ? "skipped" : "completed"} successfully`);
         setWorkflowDialogOpen(false);
+        setNextUserModalOpen(false);
         // Reset states
         setWorkflowFormData({});
         setSelectedTransitionId(null);
         setWorkflowNotes("");
         setWorkflowAction("complete");
+        setPendingNextStep(null);
+        setSuggestedUsers([]);
         // Refresh claim data
         const refreshRes = await fetch(`/api/claims/${id}`);
         const refreshData = await refreshRes.json();
         if (refreshData.success) setClaim(refreshData.data);
       } else {
-        toast.error(data.error?.message || "Failed to execute workflow step");
+        // Handle special error codes
+        const errorCode = data.error?.code;
+
+        if (errorCode === "SUBTASKS_INCOMPLETE") {
+          // Show pending sub-tasks count
+          const pendingCount = data.error?.details?.pendingSubTasks?.length || 0;
+          toast.error(`Cannot complete step: ${pendingCount} sub-task(s) are still pending. Complete all sub-tasks first.`);
+        } else if (errorCode === "NEXT_USER_REQUIRED") {
+          // Show next user selection modal
+          const nextStep = data.error?.details?.nextStep;
+          const eligibleUsers = data.error?.details?.eligibleUsers || [];
+
+          if (nextStep) {
+            setPendingNextStep(nextStep);
+            setSuggestedUsers(eligibleUsers);
+            setWorkflowDialogOpen(false);
+            setNextUserModalOpen(true);
+          } else {
+            toast.error("Next step requires user selection but step info is missing");
+          }
+        } else {
+          toast.error(data.error?.message || "Failed to execute workflow step");
+        }
       }
     } catch (error) {
       console.error("Error executing workflow step:", error);
       toast.error("Failed to execute workflow step");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Handle next user selection
+  const handleNextUserSelected = async (userId: number) => {
+    setNextUserModalLoading(true);
+    await handleWorkflowStep(userId);
+    setNextUserModalLoading(false);
+  };
+
+  // Refresh claim data (used by sub-task components)
+  const refreshClaimData = async () => {
+    try {
+      const refreshRes = await fetch(`/api/claims/${id}`);
+      const refreshData = await refreshRes.json();
+      if (refreshData.success) setClaim(refreshData.data);
+    } catch (error) {
+      console.error("Error refreshing claim:", error);
     }
   };
 
@@ -803,6 +863,14 @@ export default function ClaimDetailPage({
                       </div>
                     );
                   })()}
+
+                  {/* Sub-Tasks for Current Step */}
+                  <SubTaskList
+                    claimId={claim.id}
+                    workflowStepId={claim.currentStep.id}
+                    isCurrentStep={true}
+                    onSubTasksChange={refreshClaimData}
+                  />
 
                   {/* Available Transitions */}
                   {claim.currentStep.transitionsFrom.length > 0 && (
@@ -1367,7 +1435,7 @@ export default function ClaimDetailPage({
               Cancel
             </Button>
             <Button
-              onClick={handleWorkflowStep}
+              onClick={() => handleWorkflowStep()}
               disabled={submitting}
               variant={workflowAction === "skip" ? "secondary" : "default"}
             >
@@ -1486,6 +1554,24 @@ export default function ClaimDetailPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Next User Selection Modal */}
+      {pendingNextStep && (
+        <NextUserSelectionModal
+          open={nextUserModalOpen}
+          onOpenChange={(open) => {
+            setNextUserModalOpen(open);
+            if (!open) {
+              setPendingNextStep(null);
+              setSuggestedUsers([]);
+            }
+          }}
+          nextStep={pendingNextStep}
+          onSelectUser={handleNextUserSelected}
+          loading={nextUserModalLoading}
+          suggestedUsers={suggestedUsers}
+        />
+      )}
     </div>
   );
 }
