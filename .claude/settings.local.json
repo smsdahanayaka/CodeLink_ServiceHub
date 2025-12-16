@@ -22,7 +22,9 @@
       "Bash(cat:*)",
       "Bash(xargs:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(curl:*)",
+      "Bash(npm run dev:*)"
     ]
   }
 }

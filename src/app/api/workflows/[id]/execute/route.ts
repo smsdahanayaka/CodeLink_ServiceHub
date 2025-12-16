@@ -500,7 +500,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return errorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
-    return errorResponse("Failed to execute workflow step", "SERVER_ERROR", 500);
+    // Provide more detailed error message for debugging
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    return errorResponse(`Failed to execute workflow step: ${errorMessage}`, "SERVER_ERROR", 500);
   }
 }
 
