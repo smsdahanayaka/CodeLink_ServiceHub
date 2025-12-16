@@ -34,7 +34,10 @@ export function Header({ user, onMenuClick }: HeaderProps) {
     if (!user) return "U";
     const first = user.firstName?.[0] || "";
     const last = user.lastName?.[0] || "";
-    return (first + last).toUpperCase() || user.email[0].toUpperCase();
+    if (first || last) {
+      return (first + last).toUpperCase();
+    }
+    return user.email?.[0]?.toUpperCase() || "U";
   };
 
   return (

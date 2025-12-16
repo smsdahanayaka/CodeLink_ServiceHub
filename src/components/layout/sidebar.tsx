@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button";
 const menuItems = [
   {
     title: "Dashboard",
-    href: "/",
+    href: "/dashboard",
     icon: LayoutDashboard,
   },
   {
@@ -146,7 +146,7 @@ export function Sidebar({ userPermissions = [], isOpen = false, onClose }: Sideb
 
   // Check if menu item is active
   const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
+    if (href === "/dashboard") return pathname === "/dashboard";
     return pathname.startsWith(href);
   };
 
@@ -170,7 +170,7 @@ export function Sidebar({ userPermissions = [], isOpen = false, onClose }: Sideb
         <div className="flex h-full flex-col">
           {/* Logo */}
           <div className="flex h-16 items-center justify-between border-b px-6">
-            <Link href="/" className="flex items-center gap-2">
+            <Link href="/dashboard" className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <Package className="h-5 w-5" />
               </div>

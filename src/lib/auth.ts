@@ -135,7 +135,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
 
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
+      // On initial sign in, populate token with user data
       if (user) {
         token.numericId = user.numericId;
         token.email = user.email;
@@ -145,11 +146,43 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.roleId = user.roleId;
         token.roleName = user.roleName;
         token.permissions = user.permissions;
+        token.lastChecked = Date.now();
       }
+
+      // Periodically verify user is still active (every 5 minutes)
+      const REVALIDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+      const lastChecked = (token.lastChecked as number) || 0;
+      const shouldRevalidate = Date.now() - lastChecked > REVALIDATE_INTERVAL;
+
+      if (shouldRevalidate && token.numericId) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: token.numericId as number },
+            select: { status: true },
+          });
+
+          // If user is suspended/inactive, invalidate the session
+          if (!dbUser || dbUser.status !== "ACTIVE") {
+            console.log(`Auth: User ${token.email} is no longer active, invalidating session`);
+            // Return empty token to force logout
+            return { expired: true } as typeof token;
+          }
+
+          token.lastChecked = Date.now();
+        } catch (error) {
+          console.error("Error checking user status:", error);
+        }
+      }
+
       return token;
     },
 
     async session({ session, token }) {
+      // If token is expired (user suspended/deleted), return null session
+      if ((token as { expired?: boolean }).expired) {
+        return null as unknown as typeof session;
+      }
+
       if (token) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session as any).user = {

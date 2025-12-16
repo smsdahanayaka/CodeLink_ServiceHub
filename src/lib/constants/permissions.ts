@@ -191,21 +191,6 @@ export const PERMISSION_GROUPS = {
   "Settings": ["settings.view", "settings.manage"],
 } as const;
 
-// Collector-specific permissions (auto-assigned when user is linked as collector)
-export const COLLECTOR_PERMISSIONS: PermissionKey[] = [
-  "dashboard.view",
-  "shops.view",
-  "customers.view",
-  "products.view",
-  "warranty_cards.view",
-  "claims.view",
-  "claims.view_assigned",
-  "logistics.view",
-  "logistics.my_trips",
-  "logistics.collect",
-  "logistics.deliver",
-];
-
 // Default role permissions
 export const DEFAULT_ROLE_PERMISSIONS = {
   admin: ALL_PERMISSIONS,

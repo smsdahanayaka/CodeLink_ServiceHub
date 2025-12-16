@@ -123,8 +123,7 @@ export default function NewRolePage() {
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.name) newErrors.name = "Role name is required";
-    if (formData.permissions.length === 0)
-      newErrors.permissions = "Select at least one permission";
+    // Allow empty permissions - role can have no permissions (dashboard only)
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };

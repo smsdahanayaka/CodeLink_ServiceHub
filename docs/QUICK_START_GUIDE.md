@@ -19,18 +19,26 @@ This guide will help you set up your account and create your first warranty clai
 
 ## Step 2: Explore the Dashboard (1 minute)
 
-After logging in, you'll see the main dashboard with:
+After logging in, you'll be redirected to `/dashboard` where you'll see sections based on your permissions:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  📊 Dashboard                                                │
-├─────────────┬─────────────┬─────────────┬─────────────────── │
-│ Total Claims│ Pending     │ In Progress │ Completed         │
-│     125     │     23      │     45      │     57            │
-└─────────────┴─────────────┴─────────────┴───────────────────┘
+├─────────────────────────────────────────────────────────────┤
+│ Welcome, [Your Name]!                                        │
+│                                                              │
+│ MY TASKS (if you have claims.view_assigned)                 │
+│ - Pending: 5  - In Progress: 3  - Completed Today: 2        │
+│                                                              │
+│ CLAIMS OVERVIEW (if you have claims.view)                   │
+│ - Total: 125  - Pending: 23  - Urgent: 5                    │
+│                                                              │
+│ LOGISTICS (if you have logistics permissions)               │
+│ - Active Pickups: 3  - Pending Deliveries: 5                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Sidebar Menu:**
+**Sidebar Menu** (items appear based on your permissions):
 - Dashboard - You are here
 - My Tasks - Your assigned work
 - Claims - All warranty claims
@@ -228,4 +236,4 @@ Choose who handles the next step:
 
 *You're all set! Start managing your warranty claims efficiently with CodeLink ServiceHub.*
 
-*Version: 1.1 - December 2024*
+*Version: 1.4 - December 2024*

@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,6 +14,7 @@ import { PageHeader } from "@/components/layout";
 import { DataTable, Column } from "@/components/tables";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, ConfirmDialog } from "@/components/common";
+import { usePermissions } from "@/lib/hooks";
 
 // User type
 interface User {
@@ -30,10 +32,16 @@ interface User {
 
 export default function UsersPage() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const { hasPermission } = usePermissions();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const currentUserId = session?.user?.id;
+  const canDelete = hasPermission("users.delete");
+  const canEdit = hasPermission("users.edit");
 
   // Fetch users
   const fetchUsers = async () => {
@@ -120,30 +128,46 @@ export default function UsersPage() {
     {
       key: "actions",
       title: "Actions",
-      render: (user) => (
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              router.push(`/users/${user.id}`);
-            }}
-          >
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteId(user.id);
-            }}
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
-        </div>
-      ),
+      render: (user) => {
+        const isSelf = user.id === currentUserId;
+        const canDeleteUser = canDelete && !isSelf;
+
+        return (
+          <div className="flex items-center gap-2">
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  router.push(`/users/${user.id}`);
+                }}
+                title="Edit user"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isSelf) {
+                    toast.error("You cannot delete your own account");
+                    return;
+                  }
+                  setDeleteId(user.id);
+                }}
+                title={isSelf ? "Cannot delete your own account" : "Delete user"}
+                className={isSelf ? "opacity-50 cursor-not-allowed" : ""}
+              >
+                <Trash2 className={`h-4 w-4 ${isSelf ? "text-muted-foreground" : "text-destructive"}`} />
+              </Button>
+            )}
+          </div>
+        );
+      },
     },
   ];
 

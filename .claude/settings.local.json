@@ -31,7 +31,8 @@
       "Bash(git commit:*)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(del \"C:\\Hype-Projects\\CodeLink_ServiceHub\\src\\app\\(dashboard)\\page.tsx\")"
     ]
   }
 }

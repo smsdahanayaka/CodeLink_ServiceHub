@@ -34,7 +34,7 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export const createRoleSchema = z.object({
   name: z.string().min(1, "Role name is required"),
   description: z.string().optional(),
-  permissions: z.array(z.string()).min(1, "Select at least one permission"),
+  permissions: z.array(z.string()), // Allow empty permissions array
 });
 
 export const updateRoleSchema = createRoleSchema;
