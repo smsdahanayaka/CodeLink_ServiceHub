@@ -683,23 +683,37 @@ export default function PickupsPage() {
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" side="bottom" sideOffset={5} className="min-w-[160px]">
+                {/* Start Transit - needs collector */}
                 {["PENDING", "ASSIGNED"].includes(pickup.status) && pickup.collector && (
                   <DropdownMenuItem onClick={() => handleStartTransit(pickup)}>
                     <Play className="mr-2 h-4 w-4" />
                     Start Transit
                   </DropdownMenuItem>
                 )}
+                {/* Start Transit disabled hint - no collector */}
+                {["PENDING", "ASSIGNED"].includes(pickup.status) && !pickup.collector && (
+                  <DropdownMenuItem disabled className="text-muted-foreground">
+                    <Play className="mr-2 h-4 w-4" />
+                    Start Transit
+                    <span className="ml-1 text-xs">(assign first)</span>
+                  </DropdownMenuItem>
+                )}
+                {/* Complete - only in transit */}
                 {pickup.status === "IN_TRANSIT" && (
                   <DropdownMenuItem onClick={() => handleOpenComplete(pickup)}>
                     <CheckCircle className="mr-2 h-4 w-4" />
                     Complete
                   </DropdownMenuItem>
                 )}
+                {/* Cancel - only for active pickups */}
                 {!["COMPLETED", "CANCELLED"].includes(pickup.status) && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setCancelId(pickup.id)} className="text-destructive">
+                    <DropdownMenuItem
+                      onClick={() => setCancelId(pickup.id)}
+                      className="text-destructive focus:text-destructive"
+                    >
                       <XCircle className="mr-2 h-4 w-4" />
                       Cancel
                     </DropdownMenuItem>
