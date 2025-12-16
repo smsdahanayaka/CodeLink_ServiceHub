@@ -71,6 +71,8 @@ model Tenant {
   collectors            Collector[]
   pickups               Pickup[]
   deliveries            Delivery[]
+  collectionTrips       CollectionTrip[]
+  deliveryTrips         DeliveryTrip[]
   notificationTemplates NotificationTemplate[]
   notifications         Notification[]
   smsLogs               SmsLog[]
@@ -149,6 +151,9 @@ model User {
   assignedSubTasks     ClaimSubTask[]  @relation("SubTaskAssignee")
   completedSubTasks    ClaimSubTask[]  @relation("SubTaskCompletedBy")
   createdSubTasks      ClaimSubTask[]  @relation("SubTaskCreatedBy")
+  // Trip relations
+  receivedCollectionTrips CollectionTrip[] @relation("CollectionTripReceiver")
+  createdDeliveryTrips    DeliveryTrip[]   @relation("DeliveryTripCreator")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -219,9 +224,10 @@ model Product {
   updatedAt            DateTime @updatedAt
 
   // Relations
-  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category      ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  warrantyCards WarrantyCard[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category        ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  warrantyCards   WarrantyCard[]
+  collectionItems CollectionItem[]
 
   @@map("products")
 }
@@ -248,11 +254,13 @@ model Shop {
   updatedAt     DateTime @updatedAt
 
   // Relations
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customers     Customer[]
-  warrantyCards WarrantyCard[]
-  pickups       Pickup[]
-  deliveries    Delivery[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customers       Customer[]
+  warrantyCards   WarrantyCard[]
+  pickups         Pickup[]
+  deliveries      Delivery[]
+  collectionTrips CollectionTrip[]
+  deliveryTrips   DeliveryTrip[]
 
   @@map("shops")
 }
@@ -316,12 +324,13 @@ model WarrantyCard {
   updatedAt             DateTime @updatedAt
 
   // Relations
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  product        Product         @relation(fields: [productId], references: [id])
-  customer       Customer?       @relation(fields: [customerId], references: [id])
-  shop           Shop            @relation(fields: [shopId], references: [id])
-  createdByUser  User?           @relation("CreatedByUser", fields: [createdBy], references: [id])
-  warrantyClaims WarrantyClaim[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product         Product          @relation(fields: [productId], references: [id])
+  customer        Customer?        @relation(fields: [customerId], references: [id])
+  shop            Shop             @relation(fields: [shopId], references: [id])
+  createdByUser   User?            @relation("CreatedByUser", fields: [createdBy], references: [id])
+  warrantyClaims  WarrantyClaim[]
+  collectionItems CollectionItem[]
 
   @@unique([tenantId, cardNumber])
   @@unique([tenantId, serialNumber])
@@ -379,6 +388,8 @@ model WarrantyClaim {
   deliveries      Delivery[]
   stepAssignments ClaimStepAssignment[]
   subTasks        ClaimSubTask[]
+  collectionItem  CollectionItem?
+  deliveryItems   DeliveryItem[]
 
   @@unique([tenantId, claimNumber])
   @@index([tenantId, currentStatus])
@@ -656,10 +667,12 @@ model Collector {
   updatedAt    DateTime @updatedAt
 
   // Relations
-  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user       User?      @relation(fields: [userId], references: [id])
-  pickups    Pickup[]
-  deliveries Delivery[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User?            @relation(fields: [userId], references: [id])
+  pickups         Pickup[]
+  deliveries      Delivery[]
+  collectionTrips CollectionTrip[]
+  deliveryTrips   DeliveryTrip[]
 
   @@map("collectors")
 }
@@ -759,6 +772,164 @@ enum DeliveryStatus {
   IN_TRANSIT
   COMPLETED
   CANCELLED
+  FAILED
+}
+
+// ===========================================
+// TRIP-BASED LOGISTICS (Phase 4)
+// ===========================================
+
+// Collection Trip - Groups multiple items picked up together
+model CollectionTrip {
+  id              Int                @id @default(autoincrement())
+  tenantId        Int
+  tripNumber      String             @db.VarChar(100)
+  collectorId     Int
+  fromType        TripFromType       @default(SHOP)
+  shopId          Int?
+  customerName    String?            @db.VarChar(255)
+  customerPhone   String?            @db.VarChar(50)
+  customerAddress String?            @db.Text
+  status          CollectionTripStatus @default(IN_PROGRESS)
+  startedAt       DateTime           @default(now())
+  completedAt     DateTime?
+  receivedAt      DateTime?
+  receivedBy      Int?
+  notes           String?            @db.Text
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  // Relations
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  collector  Collector        @relation(fields: [collectorId], references: [id])
+  shop       Shop?            @relation(fields: [shopId], references: [id])
+  receiverUser User?          @relation("CollectionTripReceiver", fields: [receivedBy], references: [id])
+  items      CollectionItem[]
+
+  @@unique([tenantId, tripNumber])
+  @@index([tenantId, status])
+  @@index([collectorId])
+  @@map("collection_trips")
+}
+
+enum TripFromType {
+  SHOP
+  CUSTOMER
+}
+
+enum CollectionTripStatus {
+  IN_PROGRESS
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+// Collection Item - Individual item in a collection trip
+model CollectionItem {
+  id               Int                  @id @default(autoincrement())
+  tripId           Int
+  serialNumber     String               @db.VarChar(100)
+  issueDescription String               @db.Text
+  warrantyCardId   Int?
+  productId        Int?
+  customerName     String?              @db.VarChar(255)
+  customerPhone    String?              @db.VarChar(50)
+  claimId          Int?                 @unique
+  status           CollectionItemStatus @default(COLLECTED)
+  notes            String?              @db.Text
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  // Relations
+  trip         CollectionTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  warrantyCard WarrantyCard?  @relation(fields: [warrantyCardId], references: [id])
+  product      Product?       @relation(fields: [productId], references: [id])
+  claim        WarrantyClaim? @relation(fields: [claimId], references: [id])
+
+  @@index([tripId])
+  @@map("collection_items")
+}
+
+enum CollectionItemStatus {
+  COLLECTED
+  RECEIVED
+  PROCESSED
+}
+
+// Delivery Trip - Groups multiple deliveries going to same destination
+model DeliveryTrip {
+  id              Int                @id @default(autoincrement())
+  tenantId        Int
+  tripNumber      String             @db.VarChar(100)
+  collectorId     Int?
+  toType          TripToType         @default(SHOP)
+  shopId          Int?
+  customerName    String?            @db.VarChar(255)
+  customerPhone   String?            @db.VarChar(50)
+  customerAddress String?            @db.Text
+  status          DeliveryTripStatus @default(PENDING)
+  scheduledDate   DateTime?          @db.Date
+  scheduledSlot   String?            @db.VarChar(50)
+  dispatchedAt    DateTime?
+  completedAt     DateTime?
+  recipientName   String?            @db.VarChar(255)
+  signatureUrl    String?            @db.VarChar(500)
+  notes           String?            @db.Text
+  createdBy       Int?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  // Relations
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  collector   Collector?     @relation(fields: [collectorId], references: [id])
+  shop        Shop?          @relation(fields: [shopId], references: [id])
+  createdUser User?          @relation("DeliveryTripCreator", fields: [createdBy], references: [id])
+  items       DeliveryItem[]
+
+  @@unique([tenantId, tripNumber])
+  @@index([tenantId, status])
+  @@index([collectorId])
+  @@map("delivery_trips")
+}
+
+enum TripToType {
+  SHOP
+  CUSTOMER
+}
+
+enum DeliveryTripStatus {
+  PENDING
+  ASSIGNED
+  IN_TRANSIT
+  COMPLETED
+  PARTIAL
+  CANCELLED
+}
+
+// Delivery Item - Individual item in a delivery trip
+model DeliveryItem {
+  id            Int                @id @default(autoincrement())
+  tripId        Int
+  claimId       Int
+  status        DeliveryItemStatus @default(PENDING)
+  failureReason String?            @db.Text
+  deliveredAt   DateTime?
+  notes         String?            @db.Text
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  // Relations
+  trip  DeliveryTrip  @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  claim WarrantyClaim @relation(fields: [claimId], references: [id])
+
+  @@index([tripId])
+  @@index([claimId])
+  @@map("delivery_items")
+}
+
+enum DeliveryItemStatus {
+  PENDING
+  DELIVERED
   FAILED
 }
 

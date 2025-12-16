@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save, Plus, X, Search } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, Search, Package } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout";
@@ -42,6 +42,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
+import { usePermissions } from "@/lib/hooks";
 
 interface Product {
   id: number;
@@ -63,15 +64,27 @@ interface Shop {
   code: string | null;
 }
 
+interface Category {
+  id: number;
+  name: string;
+}
+
 export default function NewWarrantyCardPage() {
   const router = useRouter();
+  const { hasPermission } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+  const [productPopoverOpen, setProductPopoverOpen] = useState(false);
+
+  // Permission check for creating products
+  const canCreateProduct = hasPermission("products.create");
 
   // Inline customer add state
   const [showAddCustomer, setShowAddCustomer] = useState(false);
@@ -79,6 +92,16 @@ export default function NewWarrantyCardPage() {
     name: "",
     phone: "",
     email: "",
+  });
+
+  // Inline product add state
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [addingProduct, setAddingProduct] = useState(false);
+  const [newProduct, setNewProduct] = useState({
+    name: "",
+    modelNumber: "",
+    categoryId: "",
+    warrantyPeriodMonths: "12",
   });
 
   const [formData, setFormData] = useState({
@@ -97,21 +120,24 @@ export default function NewWarrantyCardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [productsRes, customersRes, shopsRes] = await Promise.all([
+        const [productsRes, customersRes, shopsRes, categoriesRes] = await Promise.all([
           fetch("/api/products?limit=100"),
           fetch("/api/customers?limit=100"),
           fetch("/api/shops?limit=100"),
+          fetch("/api/categories?limit=100"),
         ]);
 
-        const [productsData, customersData, shopsData] = await Promise.all([
+        const [productsData, customersData, shopsData, categoriesData] = await Promise.all([
           productsRes.json(),
           customersRes.json(),
           shopsRes.json(),
+          categoriesRes.json(),
         ]);
 
         if (productsData.success) setProducts(productsData.data);
         if (customersData.success) setCustomers(customersData.data);
         if (shopsData.success) setShops(shopsData.data);
+        if (categoriesData.success) setCategories(categoriesData.data);
       } catch (error) {
         console.error("Error fetching reference data:", error);
         toast.error("Failed to load form data");
@@ -139,6 +165,89 @@ export default function NewWarrantyCardPage() {
     setNewCustomer((prev) => ({ ...prev, [field]: value }));
     if (errors[`newCustomer.${field}`]) {
       setErrors((prev) => ({ ...prev, [`newCustomer.${field}`]: "" }));
+    }
+  };
+
+  // Handle new product field change
+  const handleNewProductChange = (field: string, value: string) => {
+    setNewProduct((prev) => ({ ...prev, [field]: value }));
+    if (errors[`newProduct.${field}`]) {
+      setErrors((prev) => ({ ...prev, [`newProduct.${field}`]: "" }));
+    }
+  };
+
+  // Filter products based on search
+  const filteredProducts = products.filter(
+    (p) =>
+      p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+      (p.modelNumber && p.modelNumber.toLowerCase().includes(productSearch.toLowerCase()))
+  );
+
+  // Select existing product
+  const selectProduct = (product: Product) => {
+    setFormData((prev) => ({ ...prev, productId: product.id.toString() }));
+    setSelectedProduct(product);
+    setShowAddProduct(false);
+    setNewProduct({ name: "", modelNumber: "", categoryId: "", warrantyPeriodMonths: "12" });
+    setProductPopoverOpen(false);
+  };
+
+  // Clear product selection
+  const clearProduct = () => {
+    setFormData((prev) => ({ ...prev, productId: "" }));
+    setSelectedProduct(null);
+    setNewProduct({ name: "", modelNumber: "", categoryId: "", warrantyPeriodMonths: "12" });
+    setShowAddProduct(false);
+  };
+
+  // Create new product inline
+  const handleCreateProduct = async () => {
+    // Validate new product
+    const productErrors: Record<string, string> = {};
+    if (!newProduct.name.trim()) productErrors["newProduct.name"] = "Product name is required";
+    if (!newProduct.warrantyPeriodMonths || parseInt(newProduct.warrantyPeriodMonths) <= 0) {
+      productErrors["newProduct.warrantyPeriodMonths"] = "Valid warranty period is required";
+    }
+
+    if (Object.keys(productErrors).length > 0) {
+      setErrors((prev) => ({ ...prev, ...productErrors }));
+      return;
+    }
+
+    setAddingProduct(true);
+    try {
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newProduct.name.trim(),
+          modelNumber: newProduct.modelNumber.trim() || undefined,
+          categoryId: newProduct.categoryId ? parseInt(newProduct.categoryId) : undefined,
+          warrantyPeriodMonths: parseInt(newProduct.warrantyPeriodMonths),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        // Add new product to the list and select it
+        const createdProduct: Product = {
+          id: data.data.id,
+          name: data.data.name,
+          modelNumber: data.data.modelNumber,
+          warrantyPeriodMonths: data.data.warrantyPeriodMonths,
+        };
+        setProducts((prev) => [createdProduct, ...prev]);
+        selectProduct(createdProduct);
+        toast.success("Product created successfully");
+      } else {
+        toast.error(data.error?.message || "Failed to create product");
+      }
+    } catch (error) {
+      console.error("Error creating product:", error);
+      toast.error("Failed to create product");
+    } finally {
+      setAddingProduct(false);
     }
   };
 
@@ -274,44 +383,219 @@ export default function NewWarrantyCardPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Product Details</CardTitle>
-                <CardDescription>Select the product being registered</CardDescription>
+                <CardDescription>Select the product being registered or add a new one</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="productId">Product *</Label>
-                    <Select
-                      value={formData.productId}
-                      onValueChange={(value) => handleChange("productId", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select product" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((product) => (
-                          <SelectItem key={product.id} value={product.id.toString()}>
-                            {product.name}
-                            {product.modelNumber && ` (${product.modelNumber})`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.productId && (
-                      <p className="text-sm text-destructive">{errors.productId}</p>
+                {/* Product Selection */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Product *</Label>
+                    {canCreateProduct && !showAddProduct && !selectedProduct && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowAddProduct(true)}
+                      >
+                        <Plus className="mr-1 h-3 w-3" />
+                        Add New
+                      </Button>
                     )}
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="serialNumber">Serial Number *</Label>
-                    <Input
-                      id="serialNumber"
-                      value={formData.serialNumber}
-                      onChange={(e) => handleChange("serialNumber", e.target.value)}
-                      placeholder="Enter product serial number"
-                    />
-                    {errors.serialNumber && (
-                      <p className="text-sm text-destructive">{errors.serialNumber}</p>
-                    )}
-                  </div>
+
+                  {/* Show selected product */}
+                  {selectedProduct && !showAddProduct && (
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
+                      <div className="flex items-center gap-3">
+                        <Package className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium">{selectedProduct.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {selectedProduct.modelNumber && `Model: ${selectedProduct.modelNumber} | `}
+                            Warranty: {selectedProduct.warrantyPeriodMonths} months
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearProduct}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Product search/select */}
+                  {!selectedProduct && !showAddProduct && (
+                    <Popover open={productPopoverOpen} onOpenChange={setProductPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-start text-muted-foreground font-normal"
+                        >
+                          <Search className="mr-2 h-4 w-4" />
+                          Search product by name or model...
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[450px] p-0" align="start">
+                        <Command>
+                          <CommandInput
+                            placeholder="Search by name or model number..."
+                            value={productSearch}
+                            onValueChange={setProductSearch}
+                          />
+                          <CommandList>
+                            <CommandEmpty>
+                              <div className="py-4 text-center">
+                                <p className="text-sm text-muted-foreground mb-2">No product found</p>
+                                {canCreateProduct && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setShowAddProduct(true);
+                                      setProductPopoverOpen(false);
+                                    }}
+                                  >
+                                    <Plus className="mr-1 h-3 w-3" />
+                                    Add New Product
+                                  </Button>
+                                )}
+                              </div>
+                            </CommandEmpty>
+                            <CommandGroup>
+                              {filteredProducts.map((product) => (
+                                <CommandItem
+                                  key={product.id}
+                                  value={`${product.name} ${product.modelNumber || ""}`}
+                                  onSelect={() => selectProduct(product)}
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{product.name}</span>
+                                    <span className="text-sm text-muted-foreground">
+                                      {product.modelNumber && `Model: ${product.modelNumber} | `}
+                                      Warranty: {product.warrantyPeriodMonths} months
+                                    </span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  )}
+
+                  {/* Add new product inline form */}
+                  {showAddProduct && (
+                    <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary">
+                          <Package className="mr-1 h-3 w-3" />
+                          New Product
+                        </Badge>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShowAddProduct(false);
+                            setNewProduct({ name: "", modelNumber: "", categoryId: "", warrantyPeriodMonths: "12" });
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="productName">Product Name *</Label>
+                          <Input
+                            id="productName"
+                            value={newProduct.name}
+                            onChange={(e) => handleNewProductChange("name", e.target.value)}
+                            placeholder="Enter product name"
+                          />
+                          {errors["newProduct.name"] && (
+                            <p className="text-sm text-destructive">{errors["newProduct.name"]}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="productModel">Model Number</Label>
+                          <Input
+                            id="productModel"
+                            value={newProduct.modelNumber}
+                            onChange={(e) => handleNewProductChange("modelNumber", e.target.value)}
+                            placeholder="Enter model number"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="productCategory">Category</Label>
+                          <Select
+                            value={newProduct.categoryId}
+                            onValueChange={(value) => handleNewProductChange("categoryId", value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select category (optional)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {categories.map((category) => (
+                                <SelectItem key={category.id} value={category.id.toString()}>
+                                  {category.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="productWarranty">Warranty Period (months) *</Label>
+                          <Input
+                            id="productWarranty"
+                            type="number"
+                            min="1"
+                            value={newProduct.warrantyPeriodMonths}
+                            onChange={(e) => handleNewProductChange("warrantyPeriodMonths", e.target.value)}
+                            placeholder="12"
+                          />
+                          {errors["newProduct.warrantyPeriodMonths"] && (
+                            <p className="text-sm text-destructive">{errors["newProduct.warrantyPeriodMonths"]}</p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={handleCreateProduct}
+                        disabled={addingProduct}
+                        className="w-full"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        {addingProduct ? "Creating..." : "Create Product"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {errors.productId && (
+                    <p className="text-sm text-destructive">{errors.productId}</p>
+                  )}
+                </div>
+
+                {/* Serial Number */}
+                <div className="space-y-2">
+                  <Label htmlFor="serialNumber">Serial Number *</Label>
+                  <Input
+                    id="serialNumber"
+                    value={formData.serialNumber}
+                    onChange={(e) => handleChange("serialNumber", e.target.value)}
+                    placeholder="Enter product serial number"
+                  />
+                  {errors.serialNumber && (
+                    <p className="text-sm text-destructive">{errors.serialNumber}</p>
+                  )}
                 </div>
               </CardContent>
             </Card>

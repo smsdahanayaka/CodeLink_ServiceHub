@@ -437,3 +437,96 @@ export const enhancedExecuteWorkflowStepSchema = z.object({
 });
 
 export type EnhancedExecuteWorkflowStepInput = z.infer<typeof enhancedExecuteWorkflowStepSchema>;
+
+// ==================== Collection Trip Schemas (Phase 4) ====================
+
+export const collectionItemSchema = z.object({
+  serialNumber: z.string().min(1, "Serial number is required"),
+  issueDescription: z.string().min(1, "Issue description is required"),
+  warrantyCardId: z.number().nullable().optional(),
+  productId: z.number().nullable().optional(),
+  customerName: z.string().optional(),
+  customerPhone: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const createCollectionTripSchema = z.object({
+  fromType: z.enum(["SHOP", "CUSTOMER"]).default("SHOP"),
+  shopId: z.number().nullable().optional(),
+  customerName: z.string().optional(),
+  customerPhone: z.string().optional(),
+  customerAddress: z.string().optional(),
+  notes: z.string().optional(),
+  items: z.array(collectionItemSchema).optional(),
+});
+
+export const addCollectionItemSchema = collectionItemSchema;
+
+export const updateCollectionTripSchema = z.object({
+  notes: z.string().optional(),
+  status: z.enum(["IN_PROGRESS", "IN_TRANSIT", "RECEIVED", "CANCELLED"]).optional(),
+});
+
+export const receiveCollectionTripSchema = z.object({
+  itemActions: z.array(z.object({
+    itemId: z.number().min(1),
+    action: z.enum(["receive", "skip"]),
+    // For items without warranty cards - create new warranty card and claim
+    createWarrantyCard: z.boolean().default(false),
+    productId: z.number().optional(),
+    customerName: z.string().optional(),
+    customerPhone: z.string().optional(),
+    notes: z.string().optional(),
+  })).optional(),
+  notes: z.string().optional(),
+});
+
+export type CollectionItemInput = z.infer<typeof collectionItemSchema>;
+export type CreateCollectionTripInput = z.infer<typeof createCollectionTripSchema>;
+export type AddCollectionItemInput = z.infer<typeof addCollectionItemSchema>;
+export type UpdateCollectionTripInput = z.infer<typeof updateCollectionTripSchema>;
+export type ReceiveCollectionTripInput = z.infer<typeof receiveCollectionTripSchema>;
+
+// ==================== Delivery Trip Schemas (Phase 4) ====================
+
+export const createDeliveryTripSchema = z.object({
+  toType: z.enum(["SHOP", "CUSTOMER"]).default("SHOP"),
+  shopId: z.number().nullable().optional(),
+  customerName: z.string().optional(),
+  customerPhone: z.string().optional(),
+  customerAddress: z.string().optional(),
+  collectorId: z.number().nullable().optional(),
+  scheduledDate: z.string().optional(),
+  scheduledSlot: z.string().optional(),
+  notes: z.string().optional(),
+  claimIds: z.array(z.number()).min(1, "At least one claim is required"),
+});
+
+export const updateDeliveryTripSchema = z.object({
+  collectorId: z.number().nullable().optional(),
+  scheduledDate: z.string().optional(),
+  scheduledSlot: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const dispatchDeliveryTripSchema = z.object({
+  collectorId: z.number().min(1, "Collector is required"),
+});
+
+export const completeDeliveryTripSchema = z.object({
+  recipientName: z.string().min(1, "Recipient name is required"),
+  signatureUrl: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const updateDeliveryItemSchema = z.object({
+  status: z.enum(["PENDING", "DELIVERED", "FAILED"]),
+  failureReason: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export type CreateDeliveryTripInput = z.infer<typeof createDeliveryTripSchema>;
+export type UpdateDeliveryTripInput = z.infer<typeof updateDeliveryTripSchema>;
+export type DispatchDeliveryTripInput = z.infer<typeof dispatchDeliveryTripSchema>;
+export type CompleteDeliveryTripInput = z.infer<typeof completeDeliveryTripSchema>;
+export type UpdateDeliveryItemInput = z.infer<typeof updateDeliveryItemSchema>;

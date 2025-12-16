@@ -71,6 +71,9 @@ export const PERMISSIONS = {
   "logistics.manage_pickups": "Manage Pickups",
   "logistics.manage_deliveries": "Manage Deliveries",
   "logistics.manage_collectors": "Manage Collectors",
+  "logistics.create_collection": "Create Collection Trips",
+  "logistics.receive": "Receive Trips at Service Center",
+  "logistics.create_delivery": "Create Delivery Trips",
 
   // Notifications Management
   "notifications.view_templates": "View Notification Templates",
@@ -155,6 +158,9 @@ export const PERMISSION_GROUPS = {
     "logistics.manage_pickups",
     "logistics.manage_deliveries",
     "logistics.manage_collectors",
+    "logistics.create_collection",
+    "logistics.receive",
+    "logistics.create_delivery",
   ],
   "Notifications": [
     "notifications.view_templates",
@@ -200,6 +206,8 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     "logistics.view",
     "logistics.manage_pickups",
     "logistics.manage_deliveries",
+    "logistics.receive",
+    "logistics.create_delivery",
     "notifications.view_templates",
     "notifications.send",
     "reports.view",
@@ -232,10 +240,14 @@ export const DEFAULT_ROLE_PERMISSIONS = {
   collector: [
     "dashboard.view",
     "shops.view",
+    "customers.view",
+    "products.view",
+    "warranty_cards.view",
     "claims.view",
     "claims.view_assigned",
     "logistics.view",
     "logistics.manage_pickups",
     "logistics.manage_deliveries",
+    "logistics.create_collection",
   ],
 } as const;
