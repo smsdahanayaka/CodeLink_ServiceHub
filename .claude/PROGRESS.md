@@ -289,21 +289,27 @@ src/
 │   │   ├── page.tsx
 │   │   ├── claims/
 │   │   ├── customers/
+│   │   ├── logistics/
 │   │   ├── my-tasks/
 │   │   ├── products/
 │   │   ├── roles/
 │   │   ├── settings/
 │   │   ├── shops/
 │   │   ├── users/
-│   │   ├── warranty-cards/
+│   │   ├── warranty/
 │   │   └── workflows/
 │   ├── api/
 │   │   ├── auth/
 │   │   ├── claims/
+│   │   │   └── [id]/
+│   │   │       ├── step-assignments/     # Phase 6
+│   │   │       └── sub-tasks/            # Phase 6
 │   │   ├── cron/
 │   │   ├── customers/
+│   │   ├── logistics/
 │   │   ├── my-tasks/
 │   │   ├── notification-templates/
+│   │   ├── permissions/
 │   │   ├── products/
 │   │   ├── roles/
 │   │   ├── settings/
@@ -312,9 +318,18 @@ src/
 │   │   ├── warranty-cards/
 │   │   ├── workflow-templates/
 │   │   └── workflows/
+│   │       └── steps/
+│   │           └── [stepId]/
+│   │               └── eligible-users/   # Phase 6
 │   ├── globals.css
 │   └── layout.tsx
 ├── components/
+│   ├── claims/                           # Phase 6
+│   │   ├── index.ts
+│   │   ├── step-assignment-mapper.tsx
+│   │   ├── sub-task-list.tsx
+│   │   ├── sub-task-form-dialog.tsx
+│   │   └── next-user-selection-modal.tsx
 │   ├── common/
 │   ├── layout/
 │   ├── providers.tsx
@@ -324,10 +339,12 @@ src/
 │   ├── auth.ts
 │   ├── constants/
 │   ├── email-provider.ts
+│   ├── hooks/
 │   ├── prisma.ts
 │   ├── sms-provider.ts
 │   ├── utils.ts
-│   ├── validations.ts
+│   ├── validations/
+│   │   └── index.ts
 │   └── workflow-notifications.ts
 ├── middleware.ts
 └── types/
@@ -335,6 +352,12 @@ src/
 prisma/
 ├── schema.prisma
 └── seed.ts
+
+docs/
+├── README.md
+├── USER_MANUAL.md
+├── ADMIN_SETUP_GUIDE.md
+└── QUICK_START_GUIDE.md
 ```
 
 ---
@@ -471,7 +494,140 @@ src/
 
 ---
 
-## Next Steps (Phase 6)
+## Phase 6: Claim Workflow Enhancement - COMPLETED
+
+**Date:** December 2024
+
+### Completed Tasks:
+
+#### 1. Database Schema Updates
+- **ClaimStepAssignment Model** - Per-claim user mapping to workflow steps
+  - Links claims to workflow steps with assigned users
+  - Supports notes and active/inactive status
+  - Unique constraint on (claimId, workflowStepId)
+- **ClaimSubTask Model** - Sub-tasks within workflow steps
+  - Title, description, priority (LOW/MEDIUM/HIGH)
+  - Status tracking (PENDING/IN_PROGRESS/COMPLETED/CANCELLED)
+  - Due date and completion tracking
+  - Assigned user and completed by user references
+- **WorkflowStep Enhancement** - Added `requireNextUserSelection` field
+
+#### 2. Step Assignments Feature
+- **Per-Claim User Mapping** - Map specific users to workflow steps when creating claims
+- **Template Override** - Claim-level assignments override workflow template defaults
+- **Assignment Resolution Priority**:
+  1. Claim Step Assignment (highest)
+  2. Workflow Template Auto-Assign
+  3. Next User Selection
+  4. Unassigned (lowest)
+
+#### 3. Sub-Tasks Feature
+- **Create Sub-Tasks** - Within current workflow step only
+- **Assign to Team Members** - Any active user can be assigned
+- **Priority Levels** - Low, Medium, High with visual badges
+- **Status Workflow** - PENDING → IN_PROGRESS → COMPLETED (or CANCELLED)
+- **Progress Tracking** - Percentage bar showing completion
+- **Sub-Task Gating** - Steps cannot complete until all sub-tasks are done
+- **Admin Override** - `forceComplete` parameter bypasses sub-task check
+
+#### 4. Next User Selection Feature
+- **Modal Selection** - When completing a step, select next assignee
+- **Eligible Users** - Filtered by role and permissions
+- **Workload Display** - Shows current task count per user
+- **Search Functionality** - Find users quickly
+- **Required Selection** - Configurable per workflow step
+
+#### 5. API Endpoints Created
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/claims/[id]/step-assignments` | GET | List step assignments for claim |
+| `/api/claims/[id]/step-assignments` | POST | Bulk upsert step assignments |
+| `/api/claims/[id]/step-assignments/[stepId]` | DELETE | Remove step assignment |
+| `/api/claims/[id]/sub-tasks` | GET | List sub-tasks (optional step filter) |
+| `/api/claims/[id]/sub-tasks` | POST | Create sub-task |
+| `/api/claims/[id]/sub-tasks/[taskId]` | GET | Get sub-task details |
+| `/api/claims/[id]/sub-tasks/[taskId]` | PUT | Update sub-task |
+| `/api/claims/[id]/sub-tasks/[taskId]` | DELETE | Delete sub-task |
+| `/api/claims/[id]/sub-tasks/[taskId]/complete` | POST | Mark sub-task complete |
+| `/api/workflows/steps/[stepId]/eligible-users` | GET | Get eligible users for step |
+
+#### 6. Modified APIs
+
+| Endpoint | Changes |
+|----------|---------|
+| `/api/workflows/[id]/execute` POST | Added sub-task completion check, next user selection requirement, `nextAssignedUserId` parameter, `forceComplete` parameter |
+
+#### 7. UI Components Created
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| `StepAssignmentMapper` | `src/components/claims/` | Map users to workflow steps |
+| `SubTaskList` | `src/components/claims/` | Display and manage sub-tasks |
+| `SubTaskFormDialog` | `src/components/claims/` | Create/edit sub-task modal |
+| `NextUserSelectionModal` | `src/components/claims/` | Select next step assignee |
+
+#### 8. Page Integrations
+
+- **Claims New Page** (`/claims/new`) - Added step assignments section after workflow selection
+- **Claims Detail Page** (`/claims/[id]`) - Added:
+  - SubTaskList in workflow step card
+  - NextUserSelectionModal handling
+  - Error handling for SUBTASKS_INCOMPLETE and NEXT_USER_REQUIRED
+
+### Files Created (Phase 6)
+
+```
+src/
+├── app/
+│   └── api/
+│       ├── claims/
+│       │   └── [id]/
+│       │       ├── step-assignments/
+│       │       │   ├── route.ts              # List/Bulk upsert
+│       │       │   └── [stepId]/
+│       │       │       └── route.ts          # Delete assignment
+│       │       └── sub-tasks/
+│       │           ├── route.ts              # List/Create
+│       │           └── [taskId]/
+│       │               ├── route.ts          # CRUD
+│       │               └── complete/
+│       │                   └── route.ts      # Mark complete
+│       └── workflows/
+│           └── steps/
+│               └── [stepId]/
+│                   └── eligible-users/
+│                       └── route.ts          # Get eligible users
+├── components/
+│   └── claims/
+│       ├── index.ts                          # Exports
+│       ├── step-assignment-mapper.tsx        # User-step mapping
+│       ├── sub-task-list.tsx                 # Sub-task display
+│       ├── sub-task-form-dialog.tsx          # Sub-task form
+│       └── next-user-selection-modal.tsx     # User selection modal
+└── lib/
+    └── validations/
+        └── index.ts                          # Added new schemas
+```
+
+### Validation Schemas Added
+
+- `createStepAssignmentSchema` - Single step assignment
+- `bulkStepAssignmentsSchema` - Bulk assignments
+- `createSubTaskSchema` - Create sub-task
+- `updateSubTaskSchema` - Update sub-task
+- `enhancedExecuteWorkflowStepSchema` - Extended workflow execution
+
+### Documentation Updated
+
+- `docs/README.md` - Added v1.1 features section
+- `docs/USER_MANUAL.md` - Added sections 8.6, 8.7, 8.8 for new features
+- `docs/ADMIN_SETUP_GUIDE.md` - Added sections 5.5, 5.6, 5.7 for configuration
+- `docs/QUICK_START_GUIDE.md` - Updated with new workflow processing steps
+
+---
+
+## Next Steps (Phase 7)
 
 1. **Reports & Analytics**
    - Dashboard widgets
@@ -493,5 +649,5 @@ src/
 ---
 
 **Last Updated:** December 2024
-**Current Phase:** Phase 5 Complete - Logistics Module
-**Next Phase:** Phase 6 - Reports & Analytics
+**Current Phase:** Phase 6 Complete - Claim Workflow Enhancement
+**Next Phase:** Phase 7 - Reports & Analytics

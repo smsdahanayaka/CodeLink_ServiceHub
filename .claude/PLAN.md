@@ -227,6 +227,27 @@ CodeLink ServiceHub is a SaaS-based warranty claim and customer support manageme
 │ status           │       │ updated_at       │
 │ created_at       │       │ resolved_at      │
 └──────────────────┘       └──────────────────┘
+                                   │
+              ┌────────────────────┴────────────────────┐
+              ▼                                         ▼
+┌──────────────────────┐                  ┌──────────────────────┐
+│ CLAIM_STEP_ASSIGNMENTS│                  │    CLAIM_SUB_TASKS   │
+├──────────────────────┤                  ├──────────────────────┤
+│ id (PK)              │                  │ id (PK)              │
+│ claim_id (FK)        │                  │ claim_id (FK)        │
+│ workflow_step_id (FK)│                  │ workflow_step_id (FK)│
+│ assigned_user_id (FK)│                  │ title                │
+│ assigned_by (FK)     │                  │ description          │
+│ notes                │                  │ assigned_to (FK)     │
+│ is_active            │                  │ status (enum)        │
+│ created_at           │                  │ priority (enum)      │
+│ updated_at           │                  │ due_date             │
+└──────────────────────┘                  │ completed_at         │
+                                          │ completed_by (FK)    │
+                                          │ created_by (FK)      │
+                                          │ sort_order           │
+                                          │ created_at           │
+                                          └──────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                      WORKFLOW ENGINE                                     │
@@ -1698,32 +1719,139 @@ TWILIO_PHONE_NUMBER=+1234567890
 
 ---
 
-### Phase 4: Logistics (NEXT)
-**Duration: Pickup & Delivery**
-
----
-
-### Phase 5: Logistics
+### Phase 4: Logistics ✅ COMPLETED
 **Duration: Pickup & Delivery**
 
 **Goals:**
-- Complete logistics module
-- Collector management
-- Pickup/delivery scheduling
+- ✅ Complete logistics module
+- ✅ Collector management
+- ✅ Pickup/delivery scheduling
 
 **Deliverables:**
-1. Collector management
-2. Pickup scheduling and tracking
-3. Delivery scheduling and tracking
-4. Route assignment
-5. Proof of delivery
-6. Integration with claim workflow
+1. ✅ Collector management
+2. ✅ Pickup scheduling and tracking
+3. ✅ Delivery scheduling and tracking
+4. ✅ Collector assignment
+5. ✅ Delivery status workflow (pending, assigned, in_transit, completed, failed, cancelled)
+6. ✅ Integration with claim workflow
 
 **Screens:**
-- Collector List / Create / Edit
-- Pickup List / Schedule / Track
-- Delivery List / Schedule / Track
-- Logistics Dashboard
+- ✅ Collector List / Create / Edit
+- ✅ Pickup List / Schedule / Track
+- ✅ Delivery List / Schedule / Track
+- ✅ Logistics Dashboard
+
+**API Endpoints:**
+- `GET/POST /api/logistics/collectors` - Collector management
+- `GET/PUT/DELETE /api/logistics/collectors/[id]` - Individual collector
+- `GET/POST /api/logistics/pickups` - Pickup management
+- `GET/PUT/PATCH/DELETE /api/logistics/pickups/[id]` - Individual pickup with status updates
+- `GET/POST /api/logistics/deliveries` - Delivery management
+- `GET/PUT/PATCH/DELETE /api/logistics/deliveries/[id]` - Individual delivery with status updates
+
+---
+
+### Phase 5: Claim Workflow Enhancement ✅ COMPLETED
+**Duration: Step Assignments, Sub-Tasks, and Next User Selection**
+
+**Goals:**
+- ✅ Per-claim user mapping to workflow steps
+- ✅ Sub-tasks within workflow steps
+- ✅ Next user selection on step completion
+- ✅ Sub-task gating (steps can't complete with pending sub-tasks)
+
+**Deliverables:**
+1. ✅ ClaimStepAssignment model - Map users to workflow steps per claim
+2. ✅ ClaimSubTask model - Sub-tasks within workflow steps
+3. ✅ requireNextUserSelection field on WorkflowStep
+4. ✅ Step assignment API endpoints
+5. ✅ Sub-task API endpoints with complete/cancel functionality
+6. ✅ Eligible users API for step assignment
+7. ✅ Enhanced workflow execute API with sub-task check and next user selection
+8. ✅ StepAssignmentMapper UI component
+9. ✅ SubTaskList UI component
+10. ✅ SubTaskFormDialog UI component
+11. ✅ NextUserSelectionModal UI component
+12. ✅ Claims page integration
+
+**Database Tables Added:**
+```sql
+-- Claim Step Assignments (per-claim user mapping)
+CREATE TABLE claim_step_assignments (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    claim_id INT NOT NULL,
+    workflow_step_id INT NOT NULL,
+    assigned_user_id INT NOT NULL,
+    assigned_by INT NOT NULL,
+    notes TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (claim_id) REFERENCES warranty_claims(id) ON DELETE CASCADE,
+    FOREIGN KEY (workflow_step_id) REFERENCES workflow_steps(id) ON DELETE CASCADE,
+    FOREIGN KEY (assigned_user_id) REFERENCES users(id),
+    FOREIGN KEY (assigned_by) REFERENCES users(id),
+    UNIQUE KEY unique_claim_step (claim_id, workflow_step_id)
+);
+
+-- Claim Sub-Tasks (tasks within workflow steps)
+CREATE TABLE claim_sub_tasks (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    claim_id INT NOT NULL,
+    workflow_step_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    assigned_to INT,
+    status ENUM('PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED') DEFAULT 'PENDING',
+    priority ENUM('LOW', 'MEDIUM', 'HIGH') DEFAULT 'MEDIUM',
+    due_date DATE,
+    completed_at TIMESTAMP NULL,
+    completed_by INT,
+    created_by INT NOT NULL,
+    sort_order INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (claim_id) REFERENCES warranty_claims(id) ON DELETE CASCADE,
+    FOREIGN KEY (workflow_step_id) REFERENCES workflow_steps(id) ON DELETE CASCADE,
+    FOREIGN KEY (assigned_to) REFERENCES users(id),
+    FOREIGN KEY (completed_by) REFERENCES users(id),
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    INDEX idx_subtask_claim_step (claim_id, workflow_step_id),
+    INDEX idx_subtask_assigned (assigned_to, status)
+);
+```
+
+**API Endpoints Created:**
+- `GET/POST /api/claims/[id]/step-assignments` - List and bulk upsert step assignments
+- `DELETE /api/claims/[id]/step-assignments/[stepId]` - Remove step assignment
+- `GET/POST /api/claims/[id]/sub-tasks` - List and create sub-tasks
+- `GET/PUT/DELETE /api/claims/[id]/sub-tasks/[taskId]` - CRUD sub-task
+- `POST /api/claims/[id]/sub-tasks/[taskId]/complete` - Mark sub-task complete
+- `GET /api/workflows/steps/[stepId]/eligible-users` - Get eligible users for step
+
+**Modified Endpoints:**
+- `POST /api/workflows/[id]/execute` - Added:
+  - Sub-task completion check (blocks if pending sub-tasks)
+  - `nextAssignedUserId` parameter for next step assignment
+  - `forceComplete` parameter for admin override
+  - SUBTASKS_INCOMPLETE and NEXT_USER_REQUIRED error codes
+
+**Screens:**
+- ✅ Claims New Page - Step assignment mapping section
+- ✅ Claims Detail Page - Sub-task list in workflow step card
+- ✅ Claims Detail Page - Next user selection modal
+
+**UI Components:**
+- `src/components/claims/step-assignment-mapper.tsx` - User-to-step mapping
+- `src/components/claims/sub-task-list.tsx` - Sub-task display and management
+- `src/components/claims/sub-task-form-dialog.tsx` - Create/edit sub-task form
+- `src/components/claims/next-user-selection-modal.tsx` - Select next step assignee
+
+**Assignment Resolution Priority:**
+1. Claim Step Assignment (highest priority)
+2. Workflow Template Auto-Assign
+3. Next User Selection (at step completion)
+4. Unassigned (lowest priority)
 
 ---
 
@@ -1797,7 +1925,7 @@ TWILIO_PHONE_NUMBER=+1234567890
 
 ---
 
-### Phase 9: Dashboard, Analytics & User Settings (FINAL PHASE)
+### Phase 9: Dashboard, Analytics & User Settings
 **Duration: Industry-Level Polish**
 
 **Goals:**

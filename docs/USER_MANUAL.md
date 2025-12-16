@@ -334,6 +334,89 @@ NEW → PENDING_REVIEW → IN_PROGRESS → REPAIR → QUALITY_CHECK → COMPLETE
 | Schedule Pickup | Arrange product collection |
 | Schedule Delivery | Arrange product return |
 | Escalate | Raise to supervisor |
+| Add Sub-Task | Create a sub-task within current step |
+| Select Next User | Choose who handles the next step |
+
+### 8.6 Sub-Tasks
+
+Sub-tasks allow you to break down workflow steps into smaller, assignable work items.
+
+**Creating a Sub-Task:**
+1. Open a claim with an active workflow step
+2. In the workflow step card, find the "Sub-Tasks" section
+3. Click **Add** button
+4. Fill in sub-task details:
+   - **Title** (required) - Brief description of the task
+   - **Description** - Detailed instructions
+   - **Priority** - Low, Medium, or High
+   - **Assign To** - Select a team member
+   - **Due Date** - When the task should be completed
+5. Click **Create**
+
+**Managing Sub-Tasks:**
+
+| Action | Description |
+|--------|-------------|
+| Complete | Click the circle icon to mark as done |
+| Start Working | Change status from Pending to In Progress |
+| Edit | Modify sub-task details |
+| Cancel | Cancel a sub-task without completing it |
+| Delete | Remove the sub-task entirely |
+
+**Sub-Task Status Flow:**
+```
+PENDING → IN_PROGRESS → COMPLETED
+              ↓
+          CANCELLED
+```
+
+**Important Rules:**
+- Sub-tasks can only be added to the **current** workflow step
+- A workflow step **cannot be completed** while sub-tasks are pending
+- Completed sub-tasks cannot be deleted
+- Sub-task progress is shown as a percentage bar
+
+### 8.7 Step Assignments
+
+Step assignments allow admins to pre-assign specific users to workflow steps when creating or editing a claim.
+
+**Assigning Users to Steps:**
+1. When creating a new claim, select a workflow
+2. The "Step Assignments" section appears
+3. For each workflow step, optionally select a user
+4. These assignments override workflow template defaults
+
+**Assignment Priority:**
+1. **Claim Step Assignment** - User mapped specifically for this claim
+2. **Workflow Template Default** - Auto-assign configured in workflow
+3. **Next User Selection** - User selects at step completion
+4. **Unassigned** - Step remains unassigned
+
+**Benefits:**
+- Pre-plan the entire claim workflow
+- Ensure specific experts handle specialized steps
+- Override template defaults for special cases
+
+### 8.8 Next User Selection
+
+When completing a workflow step, you may be asked to select who handles the next step.
+
+**When This Happens:**
+- No user is pre-assigned to the next step
+- No workflow template default exists
+- The step has `requireNextUserSelection` enabled
+
+**Selecting the Next User:**
+1. Complete the current workflow step
+2. A modal appears showing eligible users
+3. Search or scroll to find the appropriate user
+4. View user workload (number of current tasks)
+5. Select a user and click **Confirm & Continue**
+
+**Eligible Users:**
+- Users with permissions to handle the next step
+- Users with the required role (if step has role requirement)
+- Only active users in your tenant
 
 ---
 
@@ -381,7 +464,12 @@ A workflow consists of:
    - **Step Type** - Action, Decision, Notification, etc.
    - **Required Role** - Who can process this step
    - **SLA Hours** - Time limit for completion
+   - **SLA Warning Hours** - When to show warning indicator
    - **Form Fields** - Data to collect
+   - **Auto-Assign To** - Default user for this step
+   - **Require Next User Selection** - Force user selection when completing
+   - **Can Skip** - Allow skipping this step
+   - **Is Optional** - Mark step as optional
 4. Click **Save**
 
 ### 9.5 Step Types
@@ -615,6 +703,29 @@ A: If the step is configured as optional, you'll see a "Skip" button.
 **Q: Can I rollback to a previous step?**
 A: Yes, managers can rollback claims to previous workflow steps.
 
+**Q: Why can't I complete a workflow step?**
+A: Check if there are pending sub-tasks. All sub-tasks must be completed before the step can be completed.
+
+**Q: How do I assign specific users to workflow steps?**
+A: When creating a claim, select a workflow and use the "Step Assignments" section to map users to each step.
+
+**Q: Who can I select as the next user?**
+A: Only users with appropriate permissions and roles for the next step are shown as eligible options.
+
+### Sub-Tasks Questions
+
+**Q: Can I create sub-tasks for any workflow step?**
+A: No, sub-tasks can only be created for the **current** active workflow step.
+
+**Q: What happens if I have pending sub-tasks?**
+A: You cannot complete the workflow step until all sub-tasks are either completed or cancelled.
+
+**Q: Can I delete a completed sub-task?**
+A: No, completed sub-tasks are preserved for audit purposes and cannot be deleted.
+
+**Q: How do I reassign a sub-task?**
+A: Edit the sub-task and change the "Assign To" field to a different user.
+
 ### Logistics Questions
 
 **Q: Can I assign multiple pickups to one collector?**
@@ -671,4 +782,13 @@ If you need additional help:
 ---
 
 *Last Updated: December 2024*
-*Version: 1.0*
+*Version: 1.1*
+
+## Changelog
+
+### Version 1.1 (December 2024)
+- Added Sub-Tasks documentation (Section 8.6)
+- Added Step Assignments documentation (Section 8.7)
+- Added Next User Selection documentation (Section 8.8)
+- Updated Workflow Steps configuration options (Section 9.4)
+- Added Sub-Tasks FAQ section

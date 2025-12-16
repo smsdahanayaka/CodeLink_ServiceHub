@@ -252,9 +252,86 @@ Choose from pre-built templates:
 |--------|-------------|
 | Required Role | Only users with this role can process |
 | SLA Hours | Maximum time to complete step |
+| SLA Warning Hours | When to show warning indicator |
 | Auto-assign | Automatically assign to specific user |
 | Form Fields | Data to collect at this step |
 | Notifications | Send alerts on enter/exit |
+| Require Next User Selection | Force user to select next assignee |
+| Can Skip | Allow users to skip this step |
+| Is Optional | Mark step as optional in workflow |
+
+### 5.5 Sub-Tasks Configuration
+
+Sub-tasks allow users to create smaller work items within a workflow step.
+
+**Sub-Task Features:**
+- Users can create sub-tasks within the current step
+- Sub-tasks can be assigned to any team member
+- Priority levels: Low, Medium, High
+- Optional due dates for tracking
+- Progress bar shows completion percentage
+
+**Sub-Task Gating:**
+By default, workflow steps cannot be completed until all sub-tasks are done. This ensures:
+- All work items are properly tracked
+- No tasks are forgotten or skipped
+- Clear accountability for each sub-task
+
+**Admin Override:**
+Administrators can use `forceComplete` to bypass sub-task gating in exceptional cases.
+
+### 5.6 Workflow User Mapping
+
+User mapping allows pre-assignment of specific users to workflow steps.
+
+**Two Levels of Mapping:**
+
+1. **Template-Level (Workflow Default)**
+   - Configure in workflow step settings
+   - Set "Auto-assign To" for each step
+   - Applies to all claims using this workflow
+
+2. **Claim-Level (Per-Claim Override)**
+   - Configure when creating/editing a claim
+   - Use "Step Assignments" section
+   - Overrides template defaults
+
+**Assignment Resolution Priority:**
+```
+1. Claim Step Assignment (highest priority)
+2. Workflow Template Auto-Assign
+3. Next User Selection (at step completion)
+4. Unassigned (lowest priority)
+```
+
+**Best Practices:**
+| Scenario | Recommendation |
+|----------|----------------|
+| Standard process | Use template-level defaults |
+| Special customer | Use claim-level assignments |
+| Expert review needed | Map specific experts to review steps |
+| Flexible assignment | Enable "Require Next User Selection" |
+
+### 5.7 Next User Selection
+
+When a step completes and no user is pre-assigned to the next step, users can be required to select the next assignee.
+
+**Enabling Next User Selection:**
+1. Open workflow step settings
+2. Enable "Require Next User Selection"
+3. Save the step
+
+**How It Works:**
+1. User completes the current step
+2. System checks if next step has an assigned user
+3. If not, modal appears showing eligible users
+4. User selects the next assignee
+5. Claim proceeds to next step with assignment
+
+**Eligible Users Criteria:**
+- Active users in the tenant
+- Users with required role (if step has role requirement)
+- Users with permission to process claims
 
 ---
 
@@ -425,6 +502,8 @@ Default time slots:
 ### Recommended Setup
 - [ ] Custom workflow configured
 - [ ] SLA times set for each step
+- [ ] Workflow user mapping configured
+- [ ] Next user selection settings reviewed
 - [ ] Notification templates created
 - [ ] Email provider configured
 - [ ] SMS provider configured
@@ -434,6 +513,7 @@ Default time slots:
 - [ ] Logistics enabled
 - [ ] Advanced permissions configured
 - [ ] Custom form fields added
+- [ ] Sub-task gating policies reviewed
 
 ---
 
@@ -455,6 +535,18 @@ Default time slots:
 - Check required permissions
 - Verify form fields are filled
 - Check for conditional rules
+- **Check for pending sub-tasks** - Complete or cancel all sub-tasks first
+
+**Sub-tasks blocking step completion:**
+- Review all sub-tasks in the step
+- Complete pending sub-tasks
+- Cancel sub-tasks that are no longer needed
+- Use admin `forceComplete` for exceptions
+
+**Next user selection modal not appearing:**
+- Verify the step has "Require Next User Selection" enabled
+- Check if next step has a pre-assigned user
+- Ensure there are eligible users for the next step
 
 ---
 
@@ -468,3 +560,14 @@ For additional help:
 ---
 
 *Last Updated: December 2024*
+*Version: 1.1*
+
+## Changelog
+
+### Version 1.1 (December 2024)
+- Added Sub-Tasks Configuration (Section 5.5)
+- Added Workflow User Mapping (Section 5.6)
+- Added Next User Selection (Section 5.7)
+- Updated Step Configuration Options (Section 5.4)
+- Added troubleshooting for sub-tasks and user selection
+- Updated Setup Completion Checklist

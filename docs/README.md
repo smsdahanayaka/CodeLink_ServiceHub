@@ -90,9 +90,9 @@ Welcome to the CodeLink ServiceHub documentation. Choose the guide that fits you
 | **Shops** | Partner Network | Shop Registration, Contact Info |
 | **Customers** | Customer Database | Customer Profiles, Contact Info |
 | **Warranty Cards** | Warranty Registration | Product-Customer Linking |
-| **Claims** | Service Requests | Claim Creation, Processing |
-| **Workflows** | Process Automation | Steps, Transitions, Forms |
-| **My Tasks** | Personal Inbox | Assigned Work, SLA Tracking |
+| **Claims** | Service Requests | Claim Creation, Processing, Sub-Tasks, Step Assignments |
+| **Workflows** | Process Automation | Steps, Transitions, Forms, User Mapping |
+| **My Tasks** | Personal Inbox | Assigned Work, SLA Tracking, Sub-Tasks |
 | **Logistics** | Pickup & Delivery | Collectors, Routes, Tracking |
 
 ---
@@ -140,6 +140,25 @@ Welcome to the CodeLink ServiceHub documentation. Choose the guide that fits you
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | Dec 2024 | Initial documentation |
+| 1.1 | Dec 2024 | Added Claim Workflow Enhancements: Sub-Tasks, Step Assignments, Next User Selection |
+
+---
+
+## New Features (v1.1)
+
+### Claim Workflow Enhancements
+
+| Feature | Description |
+|---------|-------------|
+| **Step Assignments** | Map specific users to workflow steps when creating claims |
+| **Sub-Tasks** | Create and assign sub-tasks within workflow steps |
+| **Next User Selection** | Select who handles the next step when completing a workflow step |
+| **Sub-Task Gating** | Steps cannot complete until all sub-tasks are done |
+
+For detailed documentation, see:
+- [User Manual - Sub-Tasks](USER_MANUAL.md#86-sub-tasks)
+- [User Manual - Step Assignments](USER_MANUAL.md#87-step-assignments)
+- [Admin Guide - Workflow User Mapping](ADMIN_SETUP_GUIDE.md#56-workflow-user-mapping)
 
 ---
 

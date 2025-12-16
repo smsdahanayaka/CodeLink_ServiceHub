@@ -128,6 +128,17 @@ When a customer reports an issue, create a claim.
 2. Click on the current workflow step
 3. Fill in any required information
 4. Click **Complete Step** to move forward
+5. If prompted, select the user for the next step
+
+### Add Sub-Tasks (Optional)
+
+Break down complex steps into smaller tasks:
+
+1. Open a claim with an active workflow step
+2. Find the "Sub-Tasks" section in the step card
+3. Click **Add** to create a sub-task
+4. Assign it to a team member
+5. Complete all sub-tasks before finishing the step
 
 ### Schedule a Pickup (Optional)
 
@@ -166,6 +177,8 @@ If you need to collect the product:
 | Find a warranty | Warranty Cards → Search |
 | Add a customer | Customers → Add Customer |
 | Check my work | My Tasks |
+| Add sub-task | Claims → [Claim] → Sub-Tasks → Add |
+| Complete sub-task | Click the circle icon on the sub-task |
 | Schedule pickup | Logistics → Pickups → Schedule |
 | Schedule delivery | Logistics → Deliveries → Schedule |
 
@@ -188,8 +201,31 @@ If you need to collect the product:
 - [ ] Created a warranty card
 - [ ] Created a warranty claim
 - [ ] Processed a workflow step
+- [ ] Added a sub-task to a step
+- [ ] Completed the sub-task
+- [ ] Selected next user when prompted
 - [ ] Checked My Tasks
 
 ---
 
+## New Features Highlight
+
+### Sub-Tasks
+Break down workflow steps into smaller, assignable tasks:
+- Add sub-tasks to the current step
+- Assign to team members
+- Track progress with completion percentage
+- Steps can't complete until sub-tasks are done
+
+### Next User Selection
+Choose who handles the next step:
+- Appears when completing a step
+- Shows eligible users with workload
+- Search and select the right person
+- Pre-assign users when creating claims
+
+---
+
 *You're all set! Start managing your warranty claims efficiently with CodeLink ServiceHub.*
+
+*Version: 1.1 - December 2024*
