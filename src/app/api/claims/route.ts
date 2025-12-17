@@ -259,8 +259,10 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth();
 
-    // Check permission
-    if (!user.permissions.includes("claims.create")) {
+    // Check permission - allow claims.create OR logistics.collect (for pickup flow)
+    const canCreate = user.permissions.includes("claims.create") ||
+                      user.permissions.includes("logistics.collect");
+    if (!canCreate) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 

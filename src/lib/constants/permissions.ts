@@ -271,7 +271,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     "claims.view_assigned",
     "logistics.view",
     "logistics.my_trips",
-    "logistics.collect",
+    "logistics.collect",  // Also allows creating shops, warranty cards, claims during pickup
     "logistics.deliver",
   ],
 } as const;

@@ -73,15 +73,28 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Role not found", "NOT_FOUND", 404);
     }
 
-    // Prevent editing system roles
-    if (existingRole.isSystem) {
-      return errorResponse("Cannot edit system roles", "SYSTEM_ROLE", 400);
-    }
-
     const body = await request.json();
 
     // Validate input
     const validatedData = updateRoleSchema.parse(body);
+
+    // For system roles, only allow permissions to be updated (not name)
+    if (existingRole.isSystem) {
+      if (validatedData.name && validatedData.name !== existingRole.name) {
+        return errorResponse("Cannot rename system roles", "SYSTEM_ROLE", 400);
+      }
+
+      // Update only permissions for system roles
+      const updatedRole = await prisma.role.update({
+        where: { id: roleId },
+        data: {
+          permissions: validatedData.permissions,
+          description: validatedData.description ?? existingRole.description,
+        },
+      });
+
+      return successResponse(updatedRole);
+    }
 
     // Check if name is taken by another role
     if (validatedData.name !== existingRole.name) {

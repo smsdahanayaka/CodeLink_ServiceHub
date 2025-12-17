@@ -108,8 +108,10 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth();
 
-    // Check permission
-    if (!user.permissions.includes("warranty_cards.create")) {
+    // Check permission - allow warranty_cards.create OR logistics.collect (for pickup flow)
+    const canCreate = user.permissions.includes("warranty_cards.create") ||
+                      user.permissions.includes("logistics.collect");
+    if (!canCreate) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
