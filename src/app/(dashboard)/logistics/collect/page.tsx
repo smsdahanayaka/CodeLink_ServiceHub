@@ -65,7 +65,7 @@ export default function NewCollectionPage() {
   const [customerAddress, setCustomerAddress] = useState("");
   const [notes, setNotes] = useState("");
 
-  const canCreate = hasPermission("logistics.create_collection");
+  const canCreate = hasPermission("logistics.create_collection") || hasPermission("logistics.collect");
 
   useEffect(() => {
     fetchShops();

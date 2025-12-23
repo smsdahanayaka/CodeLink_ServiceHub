@@ -61,6 +61,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         fromShop: {
           select: { id: true, name: true, address: true, phone: true, contactPerson: true },
         },
+        collectionTrip: {
+          select: { id: true, tripNumber: true, status: true },
+        },
       },
     });
 
@@ -282,13 +285,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Invalid pickup ID", "INVALID_ID", 400);
     }
 
-    // Check permission
-    if (!user.permissions.includes("logistics.manage_pickups")) {
-      return errorResponse("Permission denied", "FORBIDDEN", 403);
-    }
-
     const body = await request.json();
     const { action } = body;
+
+    // Check permission - collectors can start, managers can do all actions
+    const canStart = user.permissions.includes("logistics.collect") || user.permissions.includes("logistics.manage_pickups");
+    const canManage = user.permissions.includes("logistics.manage_pickups");
+
+    if (action === "start" && !canStart) {
+      return errorResponse("Permission denied", "FORBIDDEN", 403);
+    } else if (action !== "start" && !canManage) {
+      return errorResponse("Permission denied", "FORBIDDEN", 403);
+    }
 
     // Verify pickup exists and belongs to tenant
     const existingPickup = await prisma.pickup.findFirst({
@@ -312,6 +320,98 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     let historyNotes = "";
 
     switch (action) {
+      case "start":
+        // Start pickup - creates or joins a collection trip
+        if (!["PENDING", "ASSIGNED"].includes(existingPickup.status)) {
+          return errorResponse(
+            "Pickup must be pending or assigned to start",
+            "INVALID_STATUS",
+            400
+          );
+        }
+
+        // Get collector from assigned collector or from user
+        let collectorId = existingPickup.collectorId;
+        if (!collectorId) {
+          // Try to find collector for current user
+          const collector = await prisma.collector.findFirst({
+            where: { userId: user.id, tenantId: user.tenantId, status: "ACTIVE" },
+          });
+          if (collector) {
+            collectorId = collector.id;
+          } else {
+            return errorResponse(
+              "No collector assigned and current user is not a collector",
+              "NO_COLLECTOR",
+              400
+            );
+          }
+        }
+
+        // Check if we should join an existing collection trip or create new
+        let collectionTripId = body.collectionTripId;
+        let tripNumber = "";
+
+        if (collectionTripId) {
+          // Verify the trip exists and belongs to the collector
+          const existingTrip = await prisma.collectionTrip.findFirst({
+            where: {
+              id: collectionTripId,
+              tenantId: user.tenantId,
+              collectorId: collectorId,
+              status: "IN_PROGRESS",
+            },
+          });
+          if (!existingTrip) {
+            return errorResponse("Collection trip not found or not in progress", "TRIP_NOT_FOUND", 400);
+          }
+          tripNumber = existingTrip.tripNumber;
+        } else {
+          // Create a new collection trip for this pickup
+          const prefix = "CT";
+          const year = new Date().getFullYear().toString().slice(-2);
+          const month = (new Date().getMonth() + 1).toString().padStart(2, "0");
+          const startOfMonth = new Date();
+          startOfMonth.setDate(1);
+          startOfMonth.setHours(0, 0, 0, 0);
+
+          const tripCount = await prisma.collectionTrip.count({
+            where: { tenantId: user.tenantId, createdAt: { gte: startOfMonth } },
+          });
+          tripNumber = `${prefix}${year}${month}${(tripCount + 1).toString().padStart(5, "0")}`;
+
+          const newTrip = await prisma.collectionTrip.create({
+            data: {
+              tenantId: user.tenantId,
+              tripNumber,
+              collectorId: collectorId,
+              fromType: existingPickup.fromType === "SHOP" ? "SHOP" : "CUSTOMER",
+              shopId: existingPickup.fromShopId,
+              customerName: existingPickup.customerName,
+              customerPhone: existingPickup.customerPhone,
+              customerAddress: existingPickup.customerAddress,
+              status: "IN_PROGRESS",
+            },
+          });
+          collectionTripId = newTrip.id;
+        }
+
+        updateData = {
+          status: "IN_TRANSIT",
+          pickedAt: new Date(),
+          collectorId: collectorId,
+          collectionTripId: collectionTripId,
+        };
+        historyAction = "pickup_started";
+        historyNotes = `Pickup ${existingPickup.pickupNumber} started - linked to trip ${tripNumber}`;
+
+        // Update claim location
+        await prisma.warrantyClaim.update({
+          where: { id: existingPickup.claimId },
+          data: { currentLocation: "IN_TRANSIT" },
+        });
+        break;
+
       case "start_transit":
         // Validate current status
         if (!["PENDING", "ASSIGNED"].includes(existingPickup.status)) {
@@ -451,7 +551,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
       default:
         return errorResponse(
-          "Invalid action. Use: start_transit, complete, cancel, reject, accept",
+          "Invalid action. Use: start, start_transit, complete, cancel, reject, accept",
           "INVALID_ACTION",
           400
         );

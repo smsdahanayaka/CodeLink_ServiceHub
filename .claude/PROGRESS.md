@@ -937,6 +937,215 @@ PICKUP COMPLETED
 
 ---
 
+## Phase 8: Pickup-Collection-Claims Integration - COMPLETED
+
+**Date:** December 2024
+
+### Overview
+
+Enhanced the logistics system to seamlessly integrate scheduled pickups with collection trips and claim creation. Added a comprehensive acceptance workflow for items received from collections, allowing service center staff to review, complete missing data, and accept or reject claims.
+
+### Completed Tasks:
+
+#### 1. Database Schema Updates
+- **ClaimAcceptanceStatus Enum**: Added `PENDING`, `ACCEPTED`, `REJECTED` statuses
+- **WarrantyClaim Model** - Added acceptance tracking fields:
+  - `acceptanceStatus: ClaimAcceptanceStatus @default(PENDING)` - Claim acceptance state
+  - `acceptedAt: DateTime?` - When the claim was accepted
+  - `acceptedBy: Int?` - User who accepted the claim
+  - `acceptedByUser: User? @relation` - Relation to accepting user
+- **Pickup Model** - Added collection trip linking:
+  - `collectionTripId: Int?` - Link to collection trip when pickup is started
+  - `collectionTrip: CollectionTrip? @relation` - Relation to collection trip
+- **CollectionTrip Model** - Added pickups relation:
+  - `pickups: Pickup[]` - Pickups linked to this collection trip
+
+#### 2. New Validation Schemas
+```typescript
+// Accept claim with all required data
+acceptClaimSchema: warrantyCardId, productId, customerId, issueDescription, issueCategory?, priority?
+
+// Reject claim with reason
+rejectClaimSchema: rejectionReason (required), notes?
+
+// Start pickup action
+startPickupSchema: collectionTripId? (optional - creates new if not provided)
+
+// Update pending claim
+updatePendingClaimSchema: issueDescription?, issueCategory?, priority?, productId?, customerId?, serialNumber?
+```
+
+#### 3. New API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/claims/pending-acceptance` | GET | List pending claims, grouped by collector/shop when `grouped=true` |
+| `/api/claims/[id]/accept` | POST | Accept or reject a pending claim |
+| `/api/claims/[id]/update-pending` | PUT | Update pending claim details before acceptance |
+
+#### 4. Modified API Endpoints
+
+| Endpoint | Changes |
+|----------|---------|
+| `/api/logistics/pickups/[id]` (PATCH) | Added "start" action - creates/joins collection trip, updates claim to IN_TRANSIT |
+| `/api/logistics/pickups` (GET) | Added `myPickups=true` parameter, comma-separated status filter |
+| `/api/logistics/collection-trips` (GET) | Added `myTrips=true` parameter, comma-separated status filter |
+| `/api/logistics/collection-trips/[id]/receive` (POST) | Creates claims with `acceptanceStatus: PENDING`, updates linked pickups to COMPLETED |
+
+#### 5. UI Changes
+
+##### My Trips Page (`/logistics/my-trips`)
+- Added third tab: "Pickups" showing pending pickups assigned to collector
+- "Start" button on pending pickups creates/joins collection trip
+- Stats grid shows: Pending Pickups, Active Collections, Active Deliveries
+
+##### Pending Acceptance Page (`/claims/pending-acceptance`) - NEW
+- Collapsible grouped view: Collector → Shop → Claims
+- Shows claim details: claim number, product, customer, issue
+- Highlights incomplete claims with orange warning styling
+- Missing fields indicator: "Missing: Product, Customer, Issue Description"
+- Action buttons: Edit (navigates to claim), Reject (opens dialog), Accept (disabled if incomplete)
+- Reject dialog with reason textarea
+- Accept button starts workflow
+
+##### Sidebar Navigation
+- Claims menu now expandable with children:
+  - "All Claims" → `/claims`
+  - "Pending Acceptance" → `/claims/pending-acceptance` (requires `logistics.receive` permission)
+
+#### 6. Permission Updates
+- `logistics.receive` - Required for pending acceptance page and accept/reject actions
+- `logistics.collect` - Added as alternative to `logistics.create_collection` for collectors
+
+### Files Created
+
+```
+src/
+├── app/
+│   ├── (dashboard)/
+│   │   └── claims/
+│   │       └── pending-acceptance/
+│   │           └── page.tsx              # Pending acceptance UI
+│   └── api/
+│       └── claims/
+│           ├── pending-acceptance/
+│           │   └── route.ts              # Pending claims list API
+│           └── [id]/
+│               ├── accept/
+│               │   └── route.ts          # Accept/reject claim API
+│               └── update-pending/
+│                   └── route.ts          # Update pending claim API
+```
+
+### Files Modified
+
+```
+prisma/
+└── schema.prisma                         # Added ClaimAcceptanceStatus, acceptance fields
+
+src/
+├── app/
+│   ├── (dashboard)/
+│   │   └── logistics/
+│   │       └── my-trips/
+│   │           └── page.tsx              # Added Pickups tab with Start button
+│   └── api/
+│       └── logistics/
+│           ├── pickups/
+│           │   ├── route.ts              # Added myPickups filter
+│           │   └── [id]/
+│           │       └── route.ts          # Added "start" action
+│           └── collection-trips/
+│               ├── route.ts              # Added myTrips filter
+│               └── [id]/
+│                   └── receive/
+│                       └── route.ts      # Creates PENDING claims
+├── components/
+│   └── layout/
+│       └── sidebar.tsx                   # Claims submenu with Pending Acceptance
+└── lib/
+    └── validations/
+        └── index.ts                      # Added acceptance schemas
+```
+
+### Process Flow
+
+```
+SCHEDULING:
+┌────────────────┐
+│ Schedule Pickup│  → Admin schedules pickup for shop
+└───────┬────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────────────┐
+│                    COLLECTOR VIEW                       │
+│              /logistics/my-trips → Pickups tab         │
+│                                                         │
+│  Pending pickups displayed with shop/customer info     │
+│  [Start] button visible on each pending pickup         │
+└───────────────────────────┬────────────────────────────┘
+                            │ Click "Start"
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│               COLLECTION TRIP CREATED                   │
+│                                                         │
+│  - New CollectionTrip created (or existing joined)     │
+│  - Pickup linked to collection trip                    │
+│  - Pickup status → IN_TRANSIT                          │
+│  - Claim location → IN_TRANSIT                         │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│            COLLECTOR COLLECTS ITEMS                     │
+│         /logistics/collect/[tripId]                    │
+│                                                         │
+│  Add items with serial numbers and issue descriptions  │
+│  Complete collection → Trip status → IN_TRANSIT        │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│           SERVICE CENTER RECEIVES TRIP                  │
+│         /logistics/receive/[tripId]                    │
+│                                                         │
+│  - Trip status → RECEIVED                              │
+│  - Linked pickups → COMPLETED                          │
+│  - Claims created with:                                │
+│    • acceptanceStatus: PENDING                         │
+│    • currentStatus: pending_acceptance                 │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│              PENDING ACCEPTANCE VIEW                    │
+│         /claims/pending-acceptance                     │
+│                                                         │
+│  Claims grouped by: Collector → Shop → Individual      │
+│                                                         │
+│  For each claim:                                       │
+│  - Show product, customer, issue                       │
+│  - Highlight missing fields (orange)                   │
+│  - [Edit] → Navigate to claim details                  │
+│  - [Reject] → Open rejection dialog                    │
+│  - [Accept] → Disabled if incomplete                   │
+└───────────────────────────┬────────────────────────────┘
+                            │
+           ┌────────────────┴────────────────┐
+           │                                 │
+           ▼                                 ▼
+┌──────────────────────┐        ┌──────────────────────┐
+│       ACCEPT         │        │       REJECT         │
+│                      │        │                      │
+│ - acceptanceStatus   │        │ - acceptanceStatus   │
+│   → ACCEPTED         │        │   → REJECTED         │
+│ - Workflow starts    │        │ - Return delivery    │
+│ - First step assigned│        │   scheduled          │
+└──────────────────────┘        └──────────────────────┘
+```
+
+---
+
 **Last Updated:** December 2024
-**Current Phase:** Phase 7 Complete - Pending Review & Rejection System
-**Next Phase:** Phase 8 - Reports & Analytics
+**Current Phase:** Phase 8 Complete - Pickup-Collection-Claims Integration
+**Next Phase:** Phase 9 - Reports & Analytics

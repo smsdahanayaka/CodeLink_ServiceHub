@@ -76,7 +76,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const { notes } = body;
 
-    // Get existing trip with items
+    // Get existing trip with items and linked pickups
     const existingTrip = await prisma.collectionTrip.findFirst({
       where: {
         id: tripId,
@@ -84,6 +84,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
       include: {
         shop: true,
+        collector: true,
         items: {
           include: {
             warrantyCard: {
@@ -94,6 +95,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               },
             },
             product: true,
+          },
+        },
+        pickups: {
+          include: {
+            claim: true,
           },
         },
       },
@@ -206,7 +212,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           warrantyCardId = newWarrantyCard.id;
         }
 
-        // Create claim for this item
+        // Create claim for this item with PENDING acceptance status
         const claimNumber = await generateClaimNumber(user.tenantId);
 
         const newClaim = await prisma.warrantyClaim.create({
@@ -220,8 +226,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             issueDescription: item.issueDescription,
             reportedBy: existingTrip.fromType === "SHOP" ? "SHOP" : "CUSTOMER",
             priority: "MEDIUM",
-            currentStatus: defaultWorkflow?.steps[0]?.statusName || "received",
+            currentStatus: "pending_acceptance", // Set to pending acceptance instead of workflow step
             currentLocation: "SERVICE_CENTER",
+            acceptanceStatus: "PENDING", // Needs to be reviewed and accepted
             receivedAt: new Date(),
             createdBy: user.id,
           },
@@ -273,6 +280,50 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           claimId: item.claimId,
           status: "ERROR",
           message: itemError instanceof Error ? itemError.message : "Unknown error",
+        });
+      }
+    }
+
+    // Update linked pickups status to COMPLETED and their claims
+    for (const pickup of existingTrip.pickups) {
+      await prisma.pickup.update({
+        where: { id: pickup.id },
+        data: {
+          status: "COMPLETED",
+          receivedAt: new Date(),
+          receiverName: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email,
+        },
+      });
+
+      // Update the claim from pickup - already has warranty card, so just update location and acceptance
+      if (pickup.claim) {
+        await prisma.warrantyClaim.update({
+          where: { id: pickup.claimId },
+          data: {
+            currentLocation: "SERVICE_CENTER",
+            acceptanceStatus: "PENDING", // From scheduled pickup also needs acceptance review
+            currentStatus: "pending_acceptance",
+            receivedAt: new Date(),
+          },
+        });
+
+        // Record in claim history
+        await prisma.claimHistory.create({
+          data: {
+            claimId: pickup.claimId,
+            fromStatus: pickup.claim.currentStatus,
+            toStatus: "pending_acceptance",
+            toLocation: "SERVICE_CENTER",
+            actionType: "pickup_received",
+            performedBy: user.id,
+            notes: `Received via collection trip ${existingTrip.tripNumber}`,
+            metadata: {
+              collectionTripId: existingTrip.id,
+              collectionTripNumber: existingTrip.tripNumber,
+              pickupId: pickup.id,
+              pickupNumber: pickup.pickupNumber,
+            },
+          },
         });
       }
     }

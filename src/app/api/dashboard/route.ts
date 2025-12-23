@@ -310,24 +310,29 @@ export async function GET() {
     // INVENTORY ALERTS
     // ============================================
     if (permissions.includes("inventory.view")) {
-      // Get items where quantity is less than or equal to reorder level
-      const lowStockItems = await prisma.$queryRaw<[{ count: bigint }]>`
-        SELECT COUNT(*) as count FROM inventory_items
-        WHERE tenant_id = ${user.tenantId}
-        AND quantity <= reorder_level
-        AND quantity > 0
-        AND is_active = true
-      `;
-
-      const outOfStockItems = await prisma.inventoryItem.count({
+      // Get all active inventory items and filter in JS for low stock
+      const inventoryItems = await prisma.inventoryItem.findMany({
         where: {
           tenantId: user.tenantId,
-          quantity: 0,
           isActive: true,
+        },
+        select: {
+          quantity: true,
+          reorderLevel: true,
         },
       });
 
-      const lowStock = Number(lowStockItems[0]?.count || 0);
+      // Count low stock (quantity <= reorderLevel but > 0)
+      const lowStock = inventoryItems.filter(
+        (item) =>
+          Number(item.quantity) > 0 &&
+          Number(item.quantity) <= Number(item.reorderLevel)
+      ).length;
+
+      // Count out of stock
+      const outOfStockItems = inventoryItems.filter(
+        (item) => Number(item.quantity) === 0
+      ).length;
 
       dashboardData.sections.inventoryAlerts = {
         lowStock,
@@ -385,9 +390,13 @@ export async function GET() {
 
     return successResponse(dashboardData);
   } catch (error) {
-    console.error("Error fetching dashboard:", error);
-    if (error instanceof Error && error.message === "Unauthorized") {
-      return errorResponse("Unauthorized", "UNAUTHORIZED", 401);
+    console.error("Dashboard API Error:", error);
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+      if (error.message === "Unauthorized") {
+        return errorResponse("Unauthorized", "UNAUTHORIZED", 401);
+      }
     }
     return errorResponse("Failed to fetch dashboard data", "SERVER_ERROR", 500);
   }

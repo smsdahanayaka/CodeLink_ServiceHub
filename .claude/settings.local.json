@@ -34,7 +34,9 @@
       "Bash(taskkill:*)",
       "Bash(del \"C:\\Hype-Projects\\CodeLink_ServiceHub\\src\\app\\(dashboard)\\page.tsx\")",
       "Bash(tasklist:*)",
-      "Bash(timeout /t 3)"
+      "Bash(timeout /t 3)",
+      "Bash(npx prisma db push:*)",
+      "Bash(npx prisma generate:*)"
     ]
   }
 }

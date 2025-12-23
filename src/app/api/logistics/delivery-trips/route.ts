@@ -55,12 +55,26 @@ export async function GET(request: NextRequest) {
     const shopId = searchParams.get("shopId");
     const fromDate = searchParams.get("fromDate");
     const toDate = searchParams.get("toDate");
+    const myTrips = searchParams.get("myTrips");
 
     // Build where clause
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: Record<string, any> = {
       tenantId: user.tenantId,
     };
+
+    // My trips filter - filter by collector linked to current user
+    if (myTrips === "true") {
+      const collector = await prisma.collector.findFirst({
+        where: { userId: user.id, tenantId: user.tenantId },
+      });
+      if (collector) {
+        where.collectorId = collector.id;
+      } else {
+        // User is not a collector, return empty result
+        return successResponse([], calculatePaginationMeta(0, page, limit));
+      }
+    }
 
     // Search filter
     if (search) {
@@ -72,13 +86,18 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    // Status filter
+    // Status filter (supports comma-separated values)
     if (status) {
-      where.status = status;
+      const statuses = status.split(",").map(s => s.trim());
+      if (statuses.length === 1) {
+        where.status = statuses[0];
+      } else {
+        where.status = { in: statuses };
+      }
     }
 
-    // Collector filter
-    if (collectorId) {
+    // Collector filter (only if myTrips is not set)
+    if (collectorId && myTrips !== "true") {
       where.collectorId = collectorId === "unassigned" ? null : parseInt(collectorId);
     }
 

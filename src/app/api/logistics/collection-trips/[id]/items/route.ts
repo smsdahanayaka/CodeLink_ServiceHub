@@ -28,8 +28,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Invalid trip ID", "INVALID_ID", 400);
     }
 
-    // Check permission
-    if (!user.permissions.includes("logistics.create_collection")) {
+    // Check permission - allow both create_collection and collect permissions
+    const hasPermission =
+      user.permissions.includes("logistics.create_collection") ||
+      user.permissions.includes("logistics.collect");
+
+    if (!hasPermission) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
@@ -135,8 +139,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Item ID is required", "ITEM_ID_REQUIRED", 400);
     }
 
-    // Check permission
-    if (!user.permissions.includes("logistics.create_collection")) {
+    // Check permission - allow both create_collection and collect permissions
+    const hasPermission =
+      user.permissions.includes("logistics.create_collection") ||
+      user.permissions.includes("logistics.collect");
+
+    if (!hasPermission) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 

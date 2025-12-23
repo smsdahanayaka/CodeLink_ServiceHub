@@ -113,8 +113,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Invalid trip ID", "INVALID_ID", 400);
     }
 
-    // Check permission
-    if (!user.permissions.includes("logistics.create_collection")) {
+    // Check permission - allow both create_collection and collect permissions
+    const hasPermission =
+      user.permissions.includes("logistics.create_collection") ||
+      user.permissions.includes("logistics.collect");
+
+    if (!hasPermission) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
@@ -178,8 +182,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Invalid trip ID", "INVALID_ID", 400);
     }
 
-    // Check permission
-    if (!user.permissions.includes("logistics.create_collection")) {
+    // Check permission - allow both create_collection and collect permissions
+    const hasPermission =
+      user.permissions.includes("logistics.create_collection") ||
+      user.permissions.includes("logistics.collect");
+
+    if (!hasPermission) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
@@ -238,8 +246,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const { action } = body;
 
-    // Check permission
-    if (!user.permissions.includes("logistics.create_collection")) {
+    // Check permission - allow both create_collection and collect permissions
+    const hasPermission =
+      user.permissions.includes("logistics.create_collection") ||
+      user.permissions.includes("logistics.collect");
+
+    if (!hasPermission) {
       return errorResponse("Permission denied", "FORBIDDEN", 403);
     }
 
@@ -259,7 +271,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     switch (action) {
       case "start_transit":
-        // Start transit to service center
+      case "complete":
+        // Start transit to service center (complete = start_transit)
         if (existingTrip.status !== "IN_PROGRESS") {
           return errorResponse("Trip must be in progress to start transit", "INVALID_STATUS", 400);
         }

@@ -11,8 +11,6 @@ import {
   Package,
   Truck,
   Clock,
-  CheckCircle,
-  XCircle,
   Plus,
   ArrowRight,
   MapPin,
@@ -20,6 +18,9 @@ import {
   RefreshCw,
   PackageOpen,
   Send,
+  Calendar,
+  Play,
+  Loader2,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout";
@@ -74,16 +75,44 @@ interface DeliveryTrip {
   _count: { items: number };
 }
 
+interface PendingPickup {
+  id: number;
+  pickupNumber: string;
+  fromType: "SHOP" | "CUSTOMER";
+  status: "PENDING" | "ASSIGNED";
+  scheduledDate: string | null;
+  scheduledTimeSlot: string | null;
+  fromShop: {
+    id: number;
+    name: string;
+    address: string | null;
+    phone: string | null;
+  } | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerAddress: string | null;
+  claim: {
+    id: number;
+    claimNumber: string;
+    warrantyCard: {
+      serialNumber: string;
+      product: { name: string } | null;
+    };
+  };
+}
+
 export default function MyTripsPage() {
   const router = useRouter();
   const { hasPermission } = usePermissions();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [startingPickup, setStartingPickup] = useState<number | null>(null);
   const [collectionTrips, setCollectionTrips] = useState<CollectionTrip[]>([]);
   const [deliveryTrips, setDeliveryTrips] = useState<DeliveryTrip[]>([]);
+  const [pendingPickups, setPendingPickups] = useState<PendingPickup[]>([]);
 
-  const canCreateCollection = hasPermission("logistics.create_collection");
+  const canCreateCollection = hasPermission("logistics.create_collection") || hasPermission("logistics.collect");
 
   useEffect(() => {
     fetchMyTrips();
@@ -112,6 +141,14 @@ export default function MyTripsPage() {
       if (deliveryData.success) {
         setDeliveryTrips(deliveryData.data);
       }
+
+      // Fetch pending pickups (assigned to me)
+      const pickupRes = await fetch("/api/logistics/pickups?myPickups=true&status=PENDING,ASSIGNED");
+      const pickupData = await pickupRes.json();
+
+      if (pickupData.success) {
+        setPendingPickups(pickupData.data);
+      }
     } catch (error) {
       console.error("Error fetching trips:", error);
       toast.error("Failed to load trips");
@@ -121,11 +158,40 @@ export default function MyTripsPage() {
     }
   };
 
+  const handleStartPickup = async (pickupId: number) => {
+    try {
+      setStartingPickup(pickupId);
+      const res = await fetch(`/api/logistics/pickups/${pickupId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "start" }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        toast.success("Pickup started! Collection trip created.");
+        // Refresh to show the new collection trip
+        fetchMyTrips(true);
+      } else {
+        throw new Error(data.error?.message || "Failed to start pickup");
+      }
+    } catch (error) {
+      console.error("Error starting pickup:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to start pickup");
+    } finally {
+      setStartingPickup(null);
+    }
+  };
+
   const activeCollections = collectionTrips.filter((t) =>
     ["IN_PROGRESS", "IN_TRANSIT"].includes(t.status)
   );
   const activeDeliveries = deliveryTrips.filter((t) =>
     ["ASSIGNED", "IN_TRANSIT"].includes(t.status)
+  );
+  const activePendingPickups = pendingPickups.filter((p) =>
+    ["PENDING", "ASSIGNED"].includes(p.status)
   );
 
   const formatDate = (dateString: string) => {
@@ -176,7 +242,20 @@ export default function MyTripsPage() {
       />
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
+        <Card className="bg-orange-50 dark:bg-orange-950/30 border-orange-200">
+          <CardHeader className="pb-2">
+            <CardDescription className="text-orange-700 dark:text-orange-400">
+              Pending Pickups
+            </CardDescription>
+            <CardTitle className="text-3xl text-orange-700 dark:text-orange-400">
+              {activePendingPickups.length}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Clock className="h-5 w-5 text-orange-500" />
+          </CardContent>
+        </Card>
         <Card className="bg-blue-50 dark:bg-blue-950/30 border-blue-200">
           <CardHeader className="pb-2">
             <CardDescription className="text-blue-700 dark:text-blue-400">
@@ -205,9 +284,13 @@ export default function MyTripsPage() {
         </Card>
       </div>
 
-      {/* Tabs for Collections and Deliveries */}
-      <Tabs defaultValue="collections" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+      {/* Tabs for Pickups, Collections and Deliveries */}
+      <Tabs defaultValue={activePendingPickups.length > 0 ? "pickups" : "collections"} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="pickups" className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Pickups ({activePendingPickups.length})
+          </TabsTrigger>
           <TabsTrigger value="collections" className="flex items-center gap-2">
             <PackageOpen className="h-4 w-4" />
             Collections ({activeCollections.length})
@@ -217,6 +300,82 @@ export default function MyTripsPage() {
             Deliveries ({activeDeliveries.length})
           </TabsTrigger>
         </TabsList>
+
+        {/* Pending Pickups Tab */}
+        <TabsContent value="pickups" className="space-y-4 mt-4">
+          {activePendingPickups.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center">
+                <Clock className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <p className="text-muted-foreground">No pending pickups assigned to you</p>
+              </CardContent>
+            </Card>
+          ) : (
+            activePendingPickups.map((pickup) => (
+              <Card key={pickup.id}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{pickup.pickupNumber}</CardTitle>
+                    <Badge variant={pickup.status === "ASSIGNED" ? "default" : "secondary"}>
+                      {pickup.status === "ASSIGNED" ? "Ready" : "Pending"}
+                    </Badge>
+                  </div>
+                  {pickup.scheduledDate && (
+                    <CardDescription className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {new Date(pickup.scheduledDate).toLocaleDateString()}
+                      {pickup.scheduledTimeSlot && ` (${pickup.scheduledTimeSlot})`}
+                    </CardDescription>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm">
+                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                        {pickup.fromType === "SHOP" && pickup.fromShop ? (
+                          <span>{pickup.fromShop.name}</span>
+                        ) : (
+                          <span>{pickup.customerName}</span>
+                        )}
+                      </div>
+                      {(pickup.fromShop?.phone || pickup.customerPhone) && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Phone className="h-4 w-4" />
+                          <a
+                            href={`tel:${pickup.fromShop?.phone || pickup.customerPhone}`}
+                            className="hover:underline"
+                          >
+                            {pickup.fromShop?.phone || pickup.customerPhone}
+                          </a>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 text-sm">
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                        <span>{pickup.claim.warrantyCard.product?.name || "N/A"}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {pickup.claim.warrantyCard.serialNumber}
+                        </Badge>
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={() => handleStartPickup(pickup.id)}
+                      disabled={startingPickup === pickup.id}
+                    >
+                      {startingPickup === pickup.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Play className="h-4 w-4 mr-2" />
+                      )}
+                      Start Pickup
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
 
         <TabsContent value="collections" className="space-y-4 mt-4">
           {activeCollections.length === 0 ? (

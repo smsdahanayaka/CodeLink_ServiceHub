@@ -168,6 +168,7 @@ model User {
   claimPartsCreated       ClaimPart[]      @relation("ClaimPartCreatedBy")
   claimServiceCharges     ClaimServiceCharge[]
   warrantyOverrides       WarrantyClaim[]  @relation("WarrantyOverrideBy")
+  acceptedClaims          WarrantyClaim[]  @relation("ClaimAcceptedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -401,6 +402,11 @@ model WarrantyClaim {
   requiresQuotation     Boolean   @default(false)
   quotationApprovedAt   DateTime?
 
+  // Acceptance workflow (for items from collection trips)
+  acceptanceStatus      ClaimAcceptanceStatus @default(ACCEPTED)
+  acceptedAt            DateTime?
+  acceptedBy            Int?
+
   // Relations
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   warrantyCard    WarrantyCard   @relation(fields: [warrantyCardId], references: [id])
@@ -409,6 +415,7 @@ model WarrantyClaim {
   assignedUser    User?          @relation("AssignedToUser", fields: [assignedTo], references: [id])
   createdByUser   User?          @relation("CreatedByUser", fields: [createdBy], references: [id])
   warrantyOverrideUser User?     @relation("WarrantyOverrideBy", fields: [warrantyOverrideBy], references: [id])
+  acceptedByUser  User?          @relation("ClaimAcceptedBy", fields: [acceptedBy], references: [id])
   claimHistory    ClaimHistory[]
   pickups         Pickup[]
   deliveries      Delivery[]
@@ -446,6 +453,12 @@ enum ClaimLocation {
   SHOP
   IN_TRANSIT
   SERVICE_CENTER
+}
+
+enum ClaimAcceptanceStatus {
+  PENDING       // Just received from collection, needs review
+  ACCEPTED      // Accepted, ready for workflow
+  REJECTED      // Rejected (to be returned)
 }
 
 // Claim Step Assignments (Per-claim user mapping to workflow steps)
@@ -741,18 +754,22 @@ model Pickup {
   customerName     String?  @db.VarChar(255)
   customerPhone    String?  @db.VarChar(50)
   customerAddress  String?  @db.Text
+  // Link to collection trip when pickup is started
+  collectionTripId Int?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   // Relations
-  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  claim        WarrantyClaim  @relation(fields: [claimId], references: [id])
-  warrantyCard WarrantyCard?  @relation(fields: [warrantyCardId], references: [id])
-  collector    Collector?     @relation(fields: [collectorId], references: [id])
-  fromShop     Shop?          @relation(fields: [fromShopId], references: [id])
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  claim          WarrantyClaim   @relation(fields: [claimId], references: [id])
+  warrantyCard   WarrantyCard?   @relation(fields: [warrantyCardId], references: [id])
+  collector      Collector?      @relation(fields: [collectorId], references: [id])
+  fromShop       Shop?           @relation(fields: [fromShopId], references: [id])
+  collectionTrip CollectionTrip? @relation(fields: [collectionTripId], references: [id])
 
   @@index([tenantId, status])
   @@index([warrantyCardId])
+  @@index([collectionTripId])
   @@map("pickups")
 }
 
@@ -843,11 +860,12 @@ model CollectionTrip {
   updatedAt       DateTime           @updatedAt
 
   // Relations
-  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  collector  Collector        @relation(fields: [collectorId], references: [id])
-  shop       Shop?            @relation(fields: [shopId], references: [id])
-  receiverUser User?          @relation("CollectionTripReceiver", fields: [receivedBy], references: [id])
-  items      CollectionItem[]
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  collector    Collector        @relation(fields: [collectorId], references: [id])
+  shop         Shop?            @relation(fields: [shopId], references: [id])
+  receiverUser User?            @relation("CollectionTripReceiver", fields: [receivedBy], references: [id])
+  items        CollectionItem[]
+  pickups      Pickup[]         // Scheduled pickups linked to this trip
 
   @@unique([tenantId, tripNumber])
   @@index([tenantId, status])

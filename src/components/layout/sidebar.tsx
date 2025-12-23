@@ -82,9 +82,11 @@ const menuItems = [
   },
   {
     title: "Claims",
-    href: "/claims",
     icon: ClipboardList,
-    permission: "claims.view",
+    children: [
+      { title: "All Claims", href: "/claims", permission: "claims.view" },
+      { title: "Pending Acceptance", href: "/claims/pending-acceptance", permission: "logistics.receive" },
+    ],
   },
   {
     title: "Workflows",

@@ -148,7 +148,7 @@ export default function CollectionTripDetailPage({
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState<number | null>(null);
 
-  const canManage = hasPermission("logistics.create_collection");
+  const canManage = hasPermission("logistics.create_collection") || hasPermission("logistics.collect");
 
   useEffect(() => {
     fetchTrip();
