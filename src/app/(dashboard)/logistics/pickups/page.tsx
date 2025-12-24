@@ -19,13 +19,7 @@ import {
   CheckCircle,
   XCircle,
   Search,
-  Filter,
-  ChevronRight,
   Truck,
-  CreditCard,
-  UserPlus,
-  Building,
-  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -66,19 +60,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 
 // Types
 interface Pickup {
   id: number;
   pickupNumber: string;
-  claimId: number;
+  claimId: number | null;
   status: "PENDING" | "ASSIGNED" | "IN_TRANSIT" | "COMPLETED" | "CANCELLED";
   fromType: "SHOP" | "CUSTOMER";
   fromAddress: string | null;
+  routeArea: string | null;
   toLocation: string;
   scheduledDate: string | null;
   scheduledTimeSlot: string | null;
@@ -86,6 +78,12 @@ interface Pickup {
   customerName: string | null;
   customerPhone: string | null;
   createdAt: string;
+  route: {
+    id: number;
+    name: string;
+    zone: string | null;
+    areas: string | null;
+  } | null;
   claim: {
     id: number;
     claimNumber: string;
@@ -148,6 +146,13 @@ interface Shop {
   isVerified?: boolean;
 }
 
+interface Route {
+  id: number;
+  name: string;
+  zone: string | null;
+  areas: string | null;
+}
+
 interface Product {
   id: number;
   name: string;
@@ -171,9 +176,7 @@ interface SystemUser {
 export default function PickupsPage() {
   const [pickups, setPickups] = useState<Pickup[]>([]);
   const [collectors, setCollectors] = useState<Collector[]>([]);
-  const [warrantyCards, setWarrantyCards] = useState<WarrantyCard[]>([]);
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [routes, setRoutes] = useState<Route[]>([]);
   const [users, setUsers] = useState<SystemUser[]>([]); // Users for receiver selection
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -182,45 +185,18 @@ export default function PickupsPage() {
 
   // Create dialog state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [createStep, setCreateStep] = useState<"select" | "details">("select");
   const [createData, setCreateData] = useState({
-    warrantyCardId: null as number | null,
-    shopId: null as number | null,
+    routeId: null as number | null,
+    newRouteName: "",
+    newRouteZone: "",
     collectorId: "",
-    fromType: "SHOP" as "SHOP" | "CUSTOMER",
-    fromAddress: "",
-    toLocation: "Service Center",
     scheduledDate: "",
     scheduledTimeSlot: "",
     notes: "",
-    issueDescription: "",
     priority: "MEDIUM" as "LOW" | "MEDIUM" | "HIGH" | "URGENT",
-    customerName: "",
-    customerPhone: "",
-    customerAddress: "",
   });
   const [creating, setCreating] = useState(false);
-
-  // Inline creation states
-  const [showCreateShop, setShowCreateShop] = useState(false);
-  const [showCreateWarranty, setShowCreateWarranty] = useState(false);
-  const [newShop, setNewShop] = useState({ name: "", phone: "", address: "", city: "" });
-  const [newWarranty, setNewWarranty] = useState({
-    serialNumber: "",
-    productId: "",
-    shopId: "",
-    customerName: "",
-    customerPhone: "",
-    purchaseDate: format(new Date(), "yyyy-MM-dd"),
-    // New shop option (creates unverified shop)
-    createNewShop: false,
-    newShopName: "",
-    newShopPhone: "",
-    newShopAddress: "",
-    newShopCity: "",
-  });
-  const [creatingShop, setCreatingShop] = useState(false);
-  const [creatingWarranty, setCreatingWarranty] = useState(false);
+  const [showNewRoute, setShowNewRoute] = useState(false);
 
   // Complete/Cancel states
   const [completePickup, setCompletePickup] = useState<Pickup | null>(null);
@@ -230,9 +206,8 @@ export default function PickupsPage() {
   const [cancelId, setCancelId] = useState<number | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
-  // Selected warranty card for display
-  const selectedWarrantyCard = warrantyCards.find(wc => wc.id === createData.warrantyCardId);
-  const selectedShop = shops.find(s => s.id === createData.shopId);
+  // Selected route for display
+  const selectedRoute = routes.find(r => r.id === createData.routeId);
 
   // Fetch pickups
   const fetchPickups = useCallback(async () => {
@@ -256,28 +231,22 @@ export default function PickupsPage() {
   // Fetch related data
   const fetchRelatedData = async () => {
     try {
-      const [collectorsRes, warrantyRes, shopsRes, productsRes, meRes, usersRes] = await Promise.all([
-        fetch("/api/logistics/collectors?status=ACTIVE&limit=100"),
-        fetch("/api/warranty-cards?status=ACTIVE&limit=100"),
-        fetch("/api/shops?status=ACTIVE&limit=100"),
-        fetch("/api/products?limit=100"),
-        fetch("/api/auth/me"),
-        fetch("/api/users?status=ACTIVE&limit=100"),
+      // Fetch all data in parallel, with individual error handling
+      const [collectorsRes, routesRes, meRes, usersRes] = await Promise.all([
+        fetch("/api/logistics/collectors?status=ACTIVE&limit=100").catch(() => null),
+        fetch("/api/logistics/routes?status=ACTIVE&limit=100").catch(() => null),
+        fetch("/api/auth/me").catch(() => null),
+        fetch("/api/users?status=ACTIVE&limit=100").catch(() => null),
       ]);
 
-      const [collectorsData, warrantyData, shopsData, productsData, meData, usersData] = await Promise.all([
-        collectorsRes.json(),
-        warrantyRes.json(),
-        shopsRes.json(),
-        productsRes.json(),
-        meRes.json(),
-        usersRes.json(),
-      ]);
+      // Parse responses with error handling
+      const collectorsData = collectorsRes ? await collectorsRes.json().catch(() => ({})) : {};
+      const routesData = routesRes ? await routesRes.json().catch(() => ({})) : {};
+      const meData = meRes ? await meRes.json().catch(() => ({})) : {};
+      const usersData = usersRes ? await usersRes.json().catch(() => ({})) : {};
 
       if (collectorsData.success) setCollectors(collectorsData.data);
-      if (warrantyData.success) setWarrantyCards(warrantyData.data);
-      if (shopsData.success) setShops(shopsData.data);
-      if (productsData.success) setProducts(productsData.data);
+      if (routesData.success) setRoutes(routesData.data);
       if (usersData.success) setUsers(usersData.data);
 
       // Get current user's collector ID if they are a collector
@@ -322,131 +291,53 @@ export default function PickupsPage() {
     const autoCollectorId = currentUser?.collectorId?.toString() || "";
 
     setCreateData({
-      warrantyCardId: null,
-      shopId: null,
+      routeId: null,
+      newRouteName: "",
+      newRouteZone: "",
       collectorId: autoCollectorId, // Auto-assign if user is a collector
-      fromType: "SHOP",
-      fromAddress: "",
-      toLocation: "Service Center",
       scheduledDate: "",
       scheduledTimeSlot: "",
       notes: "",
-      issueDescription: "",
       priority: "MEDIUM",
-      customerName: "",
-      customerPhone: "",
-      customerAddress: "",
     });
-    setCreateStep("select");
+    setShowNewRoute(false);
     setIsCreateOpen(true);
   };
 
   // Check if current user is a collector
   const isCurrentUserCollector = !!currentUser?.collectorId;
 
-  // Handle warranty card selection
-  const handleSelectWarrantyCard = (wcId: number) => {
-    const wc = warrantyCards.find(w => w.id === wcId);
-    if (wc) {
-      setCreateData({
-        ...createData,
-        warrantyCardId: wcId,
-        shopId: wc.shop?.id || null,
-        customerName: wc.customer?.name || "",
-        customerPhone: wc.customer?.phone || "",
-        customerAddress: wc.customer?.address || "",
-      });
-    }
-  };
-
-  // Create shop inline (creates unverified shop that needs admin approval)
-  const handleCreateShop = async () => {
-    if (!newShop.name || !newShop.phone) {
-      toast.error("Shop name and phone are required");
+  // Create pickup
+  const handleCreate = async () => {
+    // Route is required - either select existing or add new
+    if (!createData.routeId && !createData.newRouteName) {
+      toast.error("Please select a route or add a new one");
       return;
     }
 
-    setCreatingShop(true);
-    try {
-      const res = await fetch("/api/shops", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newShop.name,
-          phone: newShop.phone,
-          address: newShop.address || undefined,
-          city: newShop.city || undefined,
-          status: "ACTIVE",
-          isVerified: false, // Unverified - needs admin approval
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Shop created (pending verification)");
-        setShops([...shops, { ...data.data, isVerified: false }]);
-        setCreateData({ ...createData, shopId: data.data.id });
-        setShowCreateShop(false);
-        setNewShop({ name: "", phone: "", address: "", city: "" });
-      } else {
-        toast.error(data.error?.message || "Failed to create shop");
-      }
-    } catch (error) {
-      toast.error("Failed to create shop");
-    } finally {
-      setCreatingShop(false);
-    }
-  };
-
-  // Create warranty card inline
-  const handleCreateWarranty = async () => {
-    // Validate: must have serial, product, and either existing shop OR new shop details
-    if (!newWarranty.serialNumber || !newWarranty.productId) {
-      toast.error("Serial number and product are required");
-      return;
-    }
-
-    if (!newWarranty.createNewShop && !newWarranty.shopId) {
-      toast.error("Please select a shop or add new shop details");
-      return;
-    }
-
-    if (newWarranty.createNewShop && (!newWarranty.newShopName || !newWarranty.newShopPhone)) {
-      toast.error("Shop name and phone are required");
-      return;
-    }
-
-    setCreatingWarranty(true);
+    setCreating(true);
     try {
       // Build request body
-      const requestBody: Record<string, unknown> = {
-        serialNumber: newWarranty.serialNumber,
-        productId: parseInt(newWarranty.productId),
-        purchaseDate: newWarranty.purchaseDate,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const requestBody: Record<string, any> = {
+        collectorId: createData.collectorId ? parseInt(createData.collectorId) : null,
+        scheduledDate: createData.scheduledDate || undefined,
+        scheduledTimeSlot: createData.scheduledTimeSlot || undefined,
+        notes: createData.notes || undefined,
+        priority: createData.priority,
       };
 
-      // Add customer info if provided (inline customer creation)
-      if (newWarranty.customerName && newWarranty.customerPhone) {
-        requestBody.newCustomer = {
-          name: newWarranty.customerName,
-          phone: newWarranty.customerPhone,
+      // Either use existing route or create new
+      if (createData.routeId) {
+        requestBody.routeId = createData.routeId;
+      } else if (createData.newRouteName) {
+        requestBody.newRoute = {
+          name: createData.newRouteName,
+          zone: createData.newRouteZone || undefined,
         };
       }
 
-      // Either use existing shop or create new unverified shop
-      if (newWarranty.createNewShop) {
-        // Create new unverified shop via API (shop will be created with isVerified=false)
-        requestBody.newShop = {
-          name: newWarranty.newShopName,
-          phone: newWarranty.newShopPhone,
-          address: newWarranty.newShopAddress || undefined,
-          city: newWarranty.newShopCity || undefined,
-        };
-      } else {
-        requestBody.shopId = parseInt(newWarranty.shopId);
-      }
-
-      const res = await fetch("/api/warranty-cards", {
+      const res = await fetch("/api/logistics/pickups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -454,75 +345,13 @@ export default function PickupsPage() {
 
       const data = await res.json();
       if (data.success) {
-        toast.success("Warranty card created" + (newWarranty.createNewShop ? ". Shop pending admin verification." : ""));
-        // Refresh warranty cards and select the new one
-        await fetchRelatedData();
-        setCreateData({
-          ...createData,
-          warrantyCardId: data.data.id,
-          shopId: data.data.shop?.id || null,
-          customerName: newWarranty.customerName,
-          customerPhone: newWarranty.customerPhone,
-        });
-        setShowCreateWarranty(false);
-        setNewWarranty({
-          serialNumber: "",
-          productId: "",
-          shopId: "",
-          customerName: "",
-          customerPhone: "",
-          purchaseDate: format(new Date(), "yyyy-MM-dd"),
-          createNewShop: false,
-          newShopName: "",
-          newShopPhone: "",
-          newShopAddress: "",
-          newShopCity: "",
-        });
-      } else {
-        toast.error(data.error?.message || "Failed to create warranty card");
-      }
-    } catch (error) {
-      toast.error("Failed to create warranty card");
-    } finally {
-      setCreatingWarranty(false);
-    }
-  };
-
-  // Create pickup
-  const handleCreate = async () => {
-    if (!createData.warrantyCardId) {
-      toast.error("Please select a warranty card");
-      return;
-    }
-
-    setCreating(true);
-    try {
-      const res = await fetch("/api/logistics/pickups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          warrantyCardId: createData.warrantyCardId,
-          collectorId: createData.collectorId ? parseInt(createData.collectorId) : null,
-          fromType: createData.fromType,
-          fromShopId: createData.shopId,
-          fromAddress: createData.fromAddress || undefined,
-          toLocation: createData.toLocation,
-          scheduledDate: createData.scheduledDate || undefined,
-          scheduledTimeSlot: createData.scheduledTimeSlot || undefined,
-          notes: createData.notes || undefined,
-          issueDescription: createData.issueDescription || undefined,
-          priority: createData.priority,
-          customerName: createData.customerName || undefined,
-          customerPhone: createData.customerPhone || undefined,
-          customerAddress: createData.customerAddress || undefined,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
         toast.success("Pickup scheduled successfully");
         setIsCreateOpen(false);
         fetchPickups();
+        // Refresh routes in case a new one was created
+        if (createData.newRouteName) {
+          fetchRelatedData();
+        }
       } else {
         toast.error(data.error?.message || "Failed to create pickup");
       }
@@ -723,10 +552,25 @@ export default function PickupsPage() {
             </DropdownMenu>
           </div>
 
-          {/* Product Info */}
-          {wc && (
+          {/* Route Info */}
+          {(pickup.route || pickup.routeArea) && (
             <div className="flex items-center gap-2 mb-3 p-2 bg-muted/50 rounded-lg">
-              <Package className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <div className="min-w-0">
+                <div className="font-medium text-sm truncate">
+                  {pickup.route?.name || pickup.routeArea || "Route"}
+                </div>
+                {pickup.route?.zone && (
+                  <div className="text-xs text-muted-foreground">{pickup.route.zone}</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Product Info (if has warranty card) */}
+          {wc && (
+            <div className="flex items-center gap-2 mb-3 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
+              <Package className="h-4 w-4 text-blue-600 flex-shrink-0" />
               <div className="min-w-0">
                 <div className="font-medium text-sm truncate">{wc.product.name}</div>
                 <div className="text-xs text-muted-foreground">S/N: {wc.serialNumber}</div>
@@ -734,29 +578,31 @@ export default function PickupsPage() {
             </div>
           )}
 
-          {/* From/To Info */}
-          <div className="space-y-2 mb-3">
-            <div className="flex items-start gap-2">
-              {pickup.fromType === "SHOP" ? (
-                <Store className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-              ) : (
-                <User className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">
-                  {pickup.fromType === "SHOP"
-                    ? pickup.fromShop?.name || "Shop"
-                    : pickup.customerName || wc?.customer?.name || "Customer"}
-                </div>
-                {(pickup.customerPhone || wc?.customer?.phone || pickup.fromShop?.phone) && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Phone className="h-3 w-3" />
-                    {pickup.customerPhone || wc?.customer?.phone || pickup.fromShop?.phone}
-                  </div>
+          {/* Shop/Customer Info (if linked) */}
+          {(pickup.fromShop || pickup.customerName || wc?.customer || wc?.shop) && (
+            <div className="space-y-2 mb-3">
+              <div className="flex items-start gap-2">
+                {pickup.fromType === "SHOP" ? (
+                  <Store className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                ) : (
+                  <User className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                 )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">
+                    {pickup.fromType === "SHOP"
+                      ? pickup.fromShop?.name || wc?.shop?.name || "Shop"
+                      : pickup.customerName || wc?.customer?.name || "Customer"}
+                  </div>
+                  {(pickup.customerPhone || wc?.customer?.phone || pickup.fromShop?.phone || wc?.shop?.phone) && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Phone className="h-3 w-3" />
+                      {pickup.customerPhone || wc?.customer?.phone || pickup.fromShop?.phone || wc?.shop?.phone}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Collector & Schedule */}
           <div className="flex flex-wrap gap-2 items-center">
@@ -865,555 +711,200 @@ export default function PickupsPage() {
       <Sheet open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <SheetContent side="bottom" className="h-[85vh] sm:h-auto sm:max-h-[85vh] flex flex-col p-0">
           <SheetHeader className="text-left px-6 pt-6 pb-4 flex-shrink-0">
-            <SheetTitle className="flex items-center gap-2">
-              {createStep === "details" && (
-                <Button variant="ghost" size="icon" onClick={() => setCreateStep("select")} className="h-8 w-8 -ml-2">
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              )}
-              Schedule Pickup
-            </SheetTitle>
+            <SheetTitle>Schedule Pickup</SheetTitle>
             <SheetDescription>
-              {createStep === "select"
-                ? "Select a warranty card or create a new one"
-                : "Enter pickup details"}
+              Create a pickup schedule. Collector will add shops & items during collection.
             </SheetDescription>
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto px-6">
-            {createStep === "select" ? (
-              <div className="space-y-4 pb-4">
-                {/* Selected Warranty Card */}
-                {selectedWarrantyCard && (
-                  <Card className="border-primary">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                            <CreditCard className="h-5 w-5 text-primary" />
-                          </div>
-                          <div>
-                            <div className="font-medium">{selectedWarrantyCard.product.name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              S/N: {selectedWarrantyCard.serialNumber}
-                            </div>
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setCreateData({ ...createData, warrantyCardId: null })}
-                        >
-                          Change
-                        </Button>
-                      </div>
-                      {selectedWarrantyCard.shop && (
-                        <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                          <Store className="h-4 w-4" />
-                          {selectedWarrantyCard.shop.name}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {!selectedWarrantyCard && (
+            <div className="space-y-4 pb-4">
+              {/* Route Selection */}
+              <div className="space-y-2">
+                <Label>Route / Area *</Label>
+                {!showNewRoute ? (
                   <>
-                    {/* Search Warranty Cards */}
-                    <div className="space-y-2">
-                      <Label>Select Warranty Card</Label>
-                      <Select onValueChange={(v) => handleSelectWarrantyCard(parseInt(v))}>
+                    {routes.length > 0 ? (
+                      <Select
+                        value={createData.routeId?.toString() || ""}
+                        onValueChange={(v) => setCreateData({ ...createData, routeId: parseInt(v), newRouteName: "" })}
+                      >
                         <SelectTrigger>
-                          <SelectValue placeholder="Search by serial number..." />
+                          <SelectValue placeholder="Select a route" />
                         </SelectTrigger>
                         <SelectContent>
-                          {warrantyCards.map(wc => (
-                            <SelectItem key={wc.id} value={wc.id.toString()}>
+                          {routes.map(route => (
+                            <SelectItem key={route.id} value={route.id.toString()}>
                               <div className="flex flex-col">
-                                <span>{wc.product.name}</span>
-                                <span className="text-xs text-muted-foreground">
-                                  S/N: {wc.serialNumber}
-                                </span>
+                                <span>{route.name}</span>
+                                {route.zone && (
+                                  <span className="text-xs text-muted-foreground">{route.zone}</span>
+                                )}
                               </div>
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
-
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center">
-                        <Separator />
-                      </div>
-                      <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-background px-2 text-muted-foreground">or</span>
-                      </div>
-                    </div>
-
-                    {/* Create New Warranty Card */}
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No routes found. Add a new route below.</p>
+                    )}
                     <Button
+                      type="button"
                       variant="outline"
-                      className="w-full justify-start h-auto py-3"
-                      onClick={() => setShowCreateWarranty(true)}
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        setShowNewRoute(true);
+                        setCreateData({ ...createData, routeId: null });
+                      }}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                          <Plus className="h-5 w-5" />
-                        </div>
-                        <div className="text-left">
-                          <div className="font-medium">Create New Warranty Card</div>
-                          <div className="text-sm text-muted-foreground">Register a new product</div>
-                        </div>
-                      </div>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add New Route
                     </Button>
                   </>
-                )}
-
-                {/* Shop Selection */}
-                {selectedWarrantyCard && (
-                  <div className="space-y-2">
-                    <Label>Pickup From</Label>
-                    <Tabs
-                      value={createData.fromType}
-                      onValueChange={(v) => setCreateData({ ...createData, fromType: v as "SHOP" | "CUSTOMER" })}
-                    >
-                      <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="SHOP">
-                          <Store className="mr-2 h-4 w-4" />
-                          Shop
-                        </TabsTrigger>
-                        <TabsTrigger value="CUSTOMER">
-                          <User className="mr-2 h-4 w-4" />
-                          Customer
-                        </TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-
-                    {createData.fromType === "SHOP" && (
-                      <div className="space-y-2 mt-3">
-                        <Select
-                          value={createData.shopId?.toString() || ""}
-                          onValueChange={(v) => setCreateData({ ...createData, shopId: parseInt(v) })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select shop" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {shops.map(shop => (
-                              <SelectItem key={shop.id} value={shop.id.toString()}>
-                                {shop.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                ) : (
+                  <Card className="border-dashed">
+                    <CardContent className="p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">New Route</span>
                         <Button
+                          type="button"
                           variant="ghost"
                           size="sm"
-                          className="w-full"
-                          onClick={() => setShowCreateShop(true)}
+                          className="h-6 px-2 text-xs"
+                          onClick={() => {
+                            setShowNewRoute(false);
+                            setCreateData({ ...createData, newRouteName: "", newRouteZone: "" });
+                          }}
                         >
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add New Shop
+                          Cancel
                         </Button>
                       </div>
-                    )}
-
-                    {createData.fromType === "CUSTOMER" && (
-                      <div className="space-y-3 mt-3">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Name</Label>
-                            <Input
-                              value={createData.customerName}
-                              onChange={(e) => setCreateData({ ...createData, customerName: e.target.value })}
-                              placeholder="Customer name"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Phone</Label>
-                            <Input
-                              value={createData.customerPhone}
-                              onChange={(e) => setCreateData({ ...createData, customerPhone: e.target.value })}
-                              placeholder="Phone"
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Address</Label>
-                          <Textarea
-                            value={createData.customerAddress}
-                            onChange={(e) => setCreateData({ ...createData, customerAddress: e.target.value })}
-                            placeholder="Pickup address"
-                            rows={2}
-                          />
-                        </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Route Name *</Label>
+                        <Input
+                          value={createData.newRouteName}
+                          onChange={(e) => setCreateData({ ...createData, newRouteName: e.target.value })}
+                          placeholder="e.g., North Zone, Route A..."
+                        />
                       </div>
-                    )}
-                  </div>
-                )}
-
-              </div>
-            ) : (
-              <div className="space-y-4 pb-4">
-                {/* Summary */}
-                {selectedWarrantyCard && (
-                  <Card className="bg-muted/50">
-                    <CardContent className="p-3">
-                      <div className="text-sm font-medium">{selectedWarrantyCard.product.name}</div>
-                      <div className="text-xs text-muted-foreground">S/N: {selectedWarrantyCard.serialNumber}</div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                        {createData.fromType === "SHOP" ? <Store className="h-3 w-3" /> : <User className="h-3 w-3" />}
-                        {createData.fromType === "SHOP"
-                          ? selectedShop?.name
-                          : createData.customerName || selectedWarrantyCard.customer?.name}
+                      <div className="space-y-1">
+                        <Label className="text-xs">Zone (Optional)</Label>
+                        <Input
+                          value={createData.newRouteZone}
+                          onChange={(e) => setCreateData({ ...createData, newRouteZone: e.target.value })}
+                          placeholder="e.g., City Center, Industrial Area..."
+                        />
                       </div>
                     </CardContent>
                   </Card>
                 )}
+                {selectedRoute && !showNewRoute && (
+                  <p className="text-xs text-muted-foreground">
+                    {selectedRoute.zone && `Zone: ${selectedRoute.zone}`}
+                    {selectedRoute.areas && ` | Areas: ${selectedRoute.areas}`}
+                  </p>
+                )}
+              </div>
 
-                {/* Collector */}
+              {/* Collector */}
+              <div className="space-y-1">
+                <Label>
+                  Assign Collector
+                  {isCurrentUserCollector && createData.collectorId && (
+                    <span className="ml-2 text-green-600">(Auto-assigned to you)</span>
+                  )}
+                </Label>
+                <Select
+                  value={createData.collectorId}
+                  onValueChange={(v) => setCreateData({ ...createData, collectorId: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Assign later" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {collectors.map(c => (
+                      <SelectItem key={c.id} value={c.id.toString()}>
+                        {c.name} - {c.phone}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Schedule */}
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">
-                    Assign Collector
-                    {isCurrentUserCollector && createData.collectorId && (
-                      <span className="ml-2 text-green-600">(Auto-assigned to you)</span>
-                    )}
-                  </Label>
-                  <Select
-                    value={createData.collectorId}
-                    onValueChange={(v) => setCreateData({ ...createData, collectorId: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Assign later" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {collectors.map(c => (
-                        <SelectItem key={c.id} value={c.id.toString()}>
-                          {c.name} - {c.phone}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Schedule */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Date</Label>
-                    <Input
-                      type="date"
-                      value={createData.scheduledDate}
-                      onChange={(e) => setCreateData({ ...createData, scheduledDate: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Time Slot</Label>
-                    <Select
-                      value={createData.scheduledTimeSlot}
-                      onValueChange={(v) => setCreateData({ ...createData, scheduledTimeSlot: v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="09:00-12:00">09:00 - 12:00</SelectItem>
-                        <SelectItem value="12:00-15:00">12:00 - 15:00</SelectItem>
-                        <SelectItem value="15:00-18:00">15:00 - 18:00</SelectItem>
-                        <SelectItem value="18:00-21:00">18:00 - 21:00</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                {/* Issue Description */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Issue Description</Label>
-                  <Textarea
-                    value={createData.issueDescription}
-                    onChange={(e) => setCreateData({ ...createData, issueDescription: e.target.value })}
-                    placeholder="Describe the issue..."
-                    rows={2}
+                  <Label>Date</Label>
+                  <Input
+                    type="date"
+                    value={createData.scheduledDate}
+                    onChange={(e) => setCreateData({ ...createData, scheduledDate: e.target.value })}
                   />
                 </div>
-
-                {/* Priority */}
                 <div className="space-y-1">
-                  <Label className="text-xs">Priority</Label>
+                  <Label>Time Slot</Label>
                   <Select
-                    value={createData.priority}
-                    onValueChange={(v) => setCreateData({ ...createData, priority: v as typeof createData.priority })}
+                    value={createData.scheduledTimeSlot}
+                    onValueChange={(v) => setCreateData({ ...createData, scheduledTimeSlot: v })}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="LOW">Low</SelectItem>
-                      <SelectItem value="MEDIUM">Medium</SelectItem>
-                      <SelectItem value="HIGH">High</SelectItem>
-                      <SelectItem value="URGENT">Urgent</SelectItem>
+                      <SelectItem value="09:00-12:00">09:00 - 12:00</SelectItem>
+                      <SelectItem value="12:00-15:00">12:00 - 15:00</SelectItem>
+                      <SelectItem value="15:00-18:00">15:00 - 18:00</SelectItem>
+                      <SelectItem value="18:00-21:00">18:00 - 21:00</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-
-                {/* Notes */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Notes</Label>
-                  <Textarea
-                    value={createData.notes}
-                    onChange={(e) => setCreateData({ ...createData, notes: e.target.value })}
-                    placeholder="Special instructions..."
-                    rows={2}
-                  />
                 </div>
               </div>
-            )}
+
+              {/* Priority */}
+              <div className="space-y-1">
+                <Label>Priority</Label>
+                <Select
+                  value={createData.priority}
+                  onValueChange={(v) => setCreateData({ ...createData, priority: v as typeof createData.priority })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOW">Low</SelectItem>
+                    <SelectItem value="MEDIUM">Medium</SelectItem>
+                    <SelectItem value="HIGH">High</SelectItem>
+                    <SelectItem value="URGENT">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-1">
+                <Label>Notes</Label>
+                <Textarea
+                  value={createData.notes}
+                  onChange={(e) => setCreateData({ ...createData, notes: e.target.value })}
+                  placeholder="Special instructions..."
+                  rows={2}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Fixed Footer with Action Buttons */}
           <div className="flex-shrink-0 border-t bg-background px-6 py-4">
-            {createStep === "select" ? (
-              <Button
-                className="w-full"
-                onClick={() => setCreateStep("details")}
-                disabled={!selectedWarrantyCard || (createData.fromType === "SHOP" && !createData.shopId)}
-              >
-                Continue
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
-            ) : (
-              <Button className="w-full" onClick={handleCreate} disabled={creating}>
-                {creating ? "Scheduling..." : "Schedule Pickup"}
-              </Button>
-            )}
+            <Button
+              className="w-full"
+              onClick={handleCreate}
+              disabled={creating || (!createData.routeId && !createData.newRouteName)}
+            >
+              {creating ? "Scheduling..." : "Schedule Pickup"}
+            </Button>
           </div>
         </SheetContent>
       </Sheet>
-
-      {/* Create Shop Dialog */}
-      <Dialog open={showCreateShop} onOpenChange={setShowCreateShop}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add New Shop</DialogTitle>
-            <DialogDescription>Create a new shop for pickup</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
-              New shops require admin verification before claims can be created.
-            </div>
-            <div className="space-y-1">
-              <Label>Shop Name *</Label>
-              <Input
-                value={newShop.name}
-                onChange={(e) => setNewShop({ ...newShop, name: e.target.value })}
-                placeholder="Shop name"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Phone *</Label>
-              <Input
-                value={newShop.phone}
-                onChange={(e) => setNewShop({ ...newShop, phone: e.target.value })}
-                placeholder="Phone number"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Address</Label>
-              <Textarea
-                value={newShop.address}
-                onChange={(e) => setNewShop({ ...newShop, address: e.target.value })}
-                placeholder="Address"
-                rows={2}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>City</Label>
-              <Input
-                value={newShop.city}
-                onChange={(e) => setNewShop({ ...newShop, city: e.target.value })}
-                placeholder="City"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateShop(false)}>Cancel</Button>
-            <Button onClick={handleCreateShop} disabled={creatingShop}>
-              {creatingShop ? "Creating..." : "Create Shop"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create Warranty Card Dialog */}
-      <Dialog open={showCreateWarranty} onOpenChange={setShowCreateWarranty}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create Warranty Card</DialogTitle>
-            <DialogDescription>Register a new product warranty</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Serial Number *</Label>
-              <Input
-                value={newWarranty.serialNumber}
-                onChange={(e) => setNewWarranty({ ...newWarranty, serialNumber: e.target.value })}
-                placeholder="Product serial number"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Product *</Label>
-              <Select
-                value={newWarranty.productId}
-                onValueChange={(v) => setNewWarranty({ ...newWarranty, productId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map(p => (
-                    <SelectItem key={p.id} value={p.id.toString()}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Shop Section - Select existing or add new */}
-            <div className="space-y-2">
-              <Label>Shop *</Label>
-              {!newWarranty.createNewShop ? (
-                <>
-                  <Select
-                    value={newWarranty.shopId}
-                    onValueChange={(v) => setNewWarranty({ ...newWarranty, shopId: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select shop" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {shops.filter(s => s.isVerified !== false).map(s => (
-                        <SelectItem key={s.id} value={s.id.toString()}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="w-full text-muted-foreground"
-                    onClick={() => setNewWarranty({ ...newWarranty, createNewShop: true, shopId: "" })}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Shop not listed? Add new shop
-                  </Button>
-                </>
-              ) : (
-                <Card className="border-dashed">
-                  <CardContent className="p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-muted-foreground">New Shop Details</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-xs"
-                        onClick={() => setNewWarranty({
-                          ...newWarranty,
-                          createNewShop: false,
-                          newShopName: "",
-                          newShopPhone: "",
-                          newShopAddress: "",
-                          newShopCity: "",
-                        })}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                    <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                      New shops require admin verification before claims can be created.
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Shop Name *</Label>
-                        <Input
-                          value={newWarranty.newShopName}
-                          onChange={(e) => setNewWarranty({ ...newWarranty, newShopName: e.target.value })}
-                          placeholder="Shop name"
-                          className="h-8"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Phone *</Label>
-                        <Input
-                          value={newWarranty.newShopPhone}
-                          onChange={(e) => setNewWarranty({ ...newWarranty, newShopPhone: e.target.value })}
-                          placeholder="Phone"
-                          className="h-8"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Address</Label>
-                      <Input
-                        value={newWarranty.newShopAddress}
-                        onChange={(e) => setNewWarranty({ ...newWarranty, newShopAddress: e.target.value })}
-                        placeholder="Address"
-                        className="h-8"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">City</Label>
-                      <Input
-                        value={newWarranty.newShopCity}
-                        onChange={(e) => setNewWarranty({ ...newWarranty, newShopCity: e.target.value })}
-                        placeholder="City"
-                        className="h-8"
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-
-            <div className="space-y-1">
-              <Label>Purchase Date</Label>
-              <Input
-                type="date"
-                value={newWarranty.purchaseDate}
-                onChange={(e) => setNewWarranty({ ...newWarranty, purchaseDate: e.target.value })}
-              />
-            </div>
-            <Separator />
-            <div className="text-sm font-medium">Customer (Optional)</div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Name</Label>
-                <Input
-                  value={newWarranty.customerName}
-                  onChange={(e) => setNewWarranty({ ...newWarranty, customerName: e.target.value })}
-                  placeholder="Name"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Phone</Label>
-                <Input
-                  value={newWarranty.customerPhone}
-                  onChange={(e) => setNewWarranty({ ...newWarranty, customerPhone: e.target.value })}
-                  placeholder="Phone"
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateWarranty(false)}>Cancel</Button>
-            <Button onClick={handleCreateWarranty} disabled={creatingWarranty}>
-              {creatingWarranty ? "Creating..." : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Complete Pickup Dialog */}
       <Dialog open={!!completePickup} onOpenChange={() => setCompletePickup(null)}>

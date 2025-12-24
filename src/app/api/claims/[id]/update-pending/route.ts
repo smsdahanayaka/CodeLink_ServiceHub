@@ -79,12 +79,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const warrantyCardUpdateData: Record<string, any> = {};
 
     if (validatedData.productId !== undefined) {
-      // Verify product exists
-      const product = await prisma.product.findFirst({
-        where: { id: validatedData.productId, tenantId: user.tenantId },
-      });
-      if (!product) {
-        return errorResponse("Product not found", "PRODUCT_NOT_FOUND", 400);
+      if (validatedData.productId !== null) {
+        // Verify product exists
+        const product = await prisma.product.findFirst({
+          where: { id: validatedData.productId, tenantId: user.tenantId },
+        });
+        if (!product) {
+          return errorResponse("Product not found", "PRODUCT_NOT_FOUND", 400);
+        }
       }
       warrantyCardUpdateData.productId = validatedData.productId;
     }

@@ -21,6 +21,7 @@ import {
   Calendar,
   Play,
   Loader2,
+  Route,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout";
@@ -82,6 +83,13 @@ interface PendingPickup {
   status: "PENDING" | "ASSIGNED";
   scheduledDate: string | null;
   scheduledTimeSlot: string | null;
+  routeArea: string | null;
+  route: {
+    id: number;
+    name: string;
+    zone: string | null;
+    areas: string | null;
+  } | null;
   fromShop: {
     id: number;
     name: string;
@@ -98,7 +106,7 @@ interface PendingPickup {
       serialNumber: string;
       product: { name: string } | null;
     };
-  };
+  } | null;
 }
 
 export default function MyTripsPage() {
@@ -331,14 +339,29 @@ export default function MyTripsPage() {
                 <CardContent>
                   <div className="space-y-3">
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <MapPin className="h-4 w-4 text-muted-foreground" />
-                        {pickup.fromType === "SHOP" && pickup.fromShop ? (
-                          <span>{pickup.fromShop.name}</span>
-                        ) : (
-                          <span>{pickup.customerName}</span>
-                        )}
-                      </div>
+                      {/* Route Info - Primary */}
+                      {pickup.route && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Route className="h-4 w-4 text-primary" />
+                          <span className="font-medium">{pickup.route.name}</span>
+                          {pickup.route.zone && (
+                            <Badge variant="secondary" className="text-xs">
+                              {pickup.route.zone}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                      {/* Shop/Customer Info */}
+                      {(pickup.fromShop || pickup.customerName) && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          {pickup.fromType === "SHOP" && pickup.fromShop ? (
+                            <span>{pickup.fromShop.name}</span>
+                          ) : (
+                            <span>{pickup.customerName || "Customer"}</span>
+                          )}
+                        </div>
+                      )}
                       {(pickup.fromShop?.phone || pickup.customerPhone) && (
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Phone className="h-4 w-4" />
@@ -350,13 +373,16 @@ export default function MyTripsPage() {
                           </a>
                         </div>
                       )}
-                      <div className="flex items-center gap-2 text-sm">
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                        <span>{pickup.claim.warrantyCard.product?.name || "N/A"}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {pickup.claim.warrantyCard.serialNumber}
-                        </Badge>
-                      </div>
+                      {/* Claim/Product Info if available */}
+                      {pickup.claim?.warrantyCard && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                          <span>{pickup.claim.warrantyCard.product?.name || "N/A"}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {pickup.claim.warrantyCard.serialNumber}
+                          </Badge>
+                        </div>
+                      )}
                     </div>
                     <Button
                       className="w-full"

@@ -69,6 +69,7 @@ model Tenant {
   warrantyClaims        WarrantyClaim[]
   workflows             Workflow[]
   collectors            Collector[]
+  routes                Route[]
   pickups               Pickup[]
   deliveries            Delivery[]
   collectionTrips       CollectionTrip[]
@@ -695,6 +696,31 @@ enum RecipientType {
 // LOGISTICS & TRACKING
 // ===========================================
 
+// Route Master (For organizing pickup/delivery areas)
+model Route {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  name        String   @db.VarChar(255)
+  zone        String?  @db.VarChar(255)  // Zone/Region name
+  areas       String?  @db.Text          // Covered areas (comma-separated or description)
+  description String?  @db.Text
+  status      RouteStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pickups     Pickup[]
+
+  @@unique([tenantId, name])
+  @@map("routes")
+}
+
+enum RouteStatus {
+  ACTIVE
+  INACTIVE
+}
+
 // Collectors (Logistics Personnel)
 model Collector {
   id           Int      @id @default(autoincrement())
@@ -731,10 +757,12 @@ enum CollectorStatus {
 model Pickup {
   id               Int      @id @default(autoincrement())
   tenantId         Int
-  claimId          Int
+  claimId          Int?     // Optional - items added later by collector
   warrantyCardId   Int?     // Direct link to warranty card
   collectorId      Int?
+  routeId          Int?     // Link to Route master
   pickupNumber     String?  @db.VarChar(100)
+  routeArea        String?  @db.VarChar(255)  // Legacy field - use routeId instead
   fromType         PickupFromType @default(SHOP)
   fromShopId       Int?
   fromAddress      String?  @db.Text
@@ -761,15 +789,17 @@ model Pickup {
 
   // Relations
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  claim          WarrantyClaim   @relation(fields: [claimId], references: [id])
+  claim          WarrantyClaim?  @relation(fields: [claimId], references: [id])
   warrantyCard   WarrantyCard?   @relation(fields: [warrantyCardId], references: [id])
   collector      Collector?      @relation(fields: [collectorId], references: [id])
+  route          Route?          @relation(fields: [routeId], references: [id])
   fromShop       Shop?           @relation(fields: [fromShopId], references: [id])
   collectionTrip CollectionTrip? @relation(fields: [collectionTripId], references: [id])
 
   @@index([tenantId, status])
   @@index([warrantyCardId])
   @@index([collectionTripId])
+  @@index([routeId])
   @@map("pickups")
 }
 

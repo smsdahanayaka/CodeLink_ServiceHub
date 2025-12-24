@@ -32,11 +32,12 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(taskkill:*)",
-      "Bash(del \"C:\\Hype-Projects\\CodeLink_ServiceHub\\src\\app\\(dashboard)\\page.tsx\")",
+      "Bash(del:*)",
       "Bash(tasklist:*)",
       "Bash(timeout /t 3)",
       "Bash(npx prisma db push:*)",
-      "Bash(npx prisma generate:*)"
+      "Bash(npx prisma generate:*)",
+      "Bash(cmd /c \"tasklist | findstr node\")"
     ]
   }
 }

@@ -317,10 +317,18 @@ export type UpdateCollectorInput = z.infer<typeof updateCollectorSchema>;
 // ==================== Logistics - Pickup Schemas ====================
 
 export const createPickupSchema = z.object({
-  // Can be based on claim OR warranty card
+  // Optional - for linking to existing claim/warranty (used when collector adds items)
   claimId: z.number().nullable().optional(),
   warrantyCardId: z.number().nullable().optional(),
+  // Route - either routeId (existing) or newRoute (to create)
+  routeId: z.number().nullable().optional(),
+  newRoute: z.object({
+    name: z.string().min(1),
+    zone: z.string().optional(),
+    areas: z.string().optional(),
+  }).optional(),
   // Pickup details
+  routeArea: z.string().optional(), // Legacy field
   collectorId: z.number().nullable().optional(),
   fromType: z.enum(["SHOP", "CUSTOMER"]).default("SHOP"),
   fromShopId: z.number().nullable().optional(),
@@ -329,8 +337,6 @@ export const createPickupSchema = z.object({
   scheduledDate: z.string().optional(), // ISO date string
   scheduledTimeSlot: z.string().optional(),
   notes: z.string().optional(),
-  // Optional issue description for creating claim
-  issueDescription: z.string().optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
   // Customer info for pickup
   customerName: z.string().optional(),
@@ -339,6 +345,8 @@ export const createPickupSchema = z.object({
 });
 
 export const updatePickupSchema = z.object({
+  routeId: z.number().nullable().optional(),
+  routeArea: z.string().optional(),
   collectorId: z.number().nullable().optional(),
   fromType: z.enum(["SHOP", "CUSTOMER"]).optional(),
   fromShopId: z.number().nullable().optional(),

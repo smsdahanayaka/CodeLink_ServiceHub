@@ -36,8 +36,20 @@ src/
 │   │   ├── customers/             # Customer management
 │   │   ├── warranty/              # Warranty cards
 │   │   ├── claims/                # Warranty claims
+│   │   │   ├── page.tsx           # Claims list
+│   │   │   ├── [id]/page.tsx      # Claim details & workflow
+│   │   │   ├── new/page.tsx       # Create claim
+│   │   │   └── pending-acceptance/page.tsx  # Review pending claims
 │   │   ├── workflows/             # Workflow templates
-│   │   ├── logistics/             # Logistics (pickups, deliveries, trips)
+│   │   ├── logistics/             # Logistics management
+│   │   │   ├── my-trips/page.tsx  # Collector dashboard
+│   │   │   ├── pickups/           # Pickup management
+│   │   │   ├── collection-trips/  # Collection trips
+│   │   │   ├── deliveries/        # Delivery management
+│   │   │   ├── delivery-trips/    # Batch deliveries
+│   │   │   ├── collectors/        # Collector management
+│   │   │   ├── collect/[id]/      # Collection trip detail
+│   │   │   └── deliver/[id]/      # Delivery trip detail
 │   │   ├── my-tasks/              # User's assigned tasks
 │   │   └── settings/              # Settings (placeholder)
 │   ├── api/                       # API Routes
@@ -51,8 +63,24 @@ src/
 │   │   ├── customers/
 │   │   ├── warranty-cards/
 │   │   ├── claims/
+│   │   │   ├── route.ts           # List/create claims
+│   │   │   ├── [id]/route.ts      # Claim CRUD
+│   │   │   ├── [id]/accept/route.ts        # Accept/reject claim
+│   │   │   ├── [id]/update-pending/route.ts # Update pending claim
+│   │   │   ├── [id]/quotation/route.ts     # Quotation management
+│   │   │   ├── [id]/invoice/route.ts       # Invoice management
+│   │   │   ├── [id]/parts/route.ts         # Claim parts
+│   │   │   ├── pending-acceptance/route.ts # Grouped pending claims
+│   │   │   └── bulk/route.ts      # Bulk operations
 │   │   ├── workflows/
+│   │   │   ├── [id]/execute/route.ts       # Execute/rollback steps
+│   │   │   └── steps/[stepId]/eligible-users/route.ts
 │   │   ├── logistics/
+│   │   │   ├── pickups/           # Pickup CRUD + status
+│   │   │   ├── collection-trips/  # Collection trip management
+│   │   │   ├── deliveries/        # Delivery CRUD
+│   │   │   ├── delivery-trips/    # Delivery trip management
+│   │   │   └── collectors/        # Collector management
 │   │   ├── notification-templates/
 │   │   ├── cron/                  # Cron job endpoints
 │   │   └── dashboard/
@@ -73,7 +101,7 @@ src/
 │   ├── constants/
 │   │   ├── index.ts               # App constants
 │   │   └── permissions.ts         # Permission definitions
-│   ├── email-provider.ts          # Email service (SendGrid/SMTP)
+│   ├── email-provider.ts          # Email service (SMTP/Nodemailer)
 │   ├── sms-provider.ts            # SMS service (Twilio)
 │   └── workflow-notifications.ts  # Workflow notification handlers
 ├── types/
@@ -110,7 +138,9 @@ const user = await requireAuth(); // Throws if not authenticated
 const hasAccess = await checkPermission("claims.view");
 ```
 
-## Database Models (Key Tables)
+## Database Models
+
+### Core Tables
 
 | Model | Description |
 |-------|-------------|
@@ -121,27 +151,104 @@ const hasAccess = await checkPermission("claims.view");
 | `InventoryItem` / `InventoryCategory` | Parts/components inventory |
 | `Shop` | Dealers/shops |
 | `Customer` | End customers |
-| `WarrantyCard` | Warranty registrations |
-| `WarrantyClaim` | Service claims |
-| `Workflow` / `WorkflowStep` | Claim processing workflows |
+
+### Warranty & Claims Tables
+
+| Model | Description |
+|-------|-------------|
+| `WarrantyCard` | Warranty registrations (cardNumber, serialNumber, dates, status) |
+| `WarrantyClaim` | Service claims with workflow tracking |
 | `ClaimHistory` | Claim audit trail |
 | `ClaimStepAssignment` | Per-claim user assignments |
 | `ClaimSubTask` | Sub-tasks within workflow steps |
-| `Collector` | Logistics personnel |
-| `Pickup` / `Delivery` | Individual pickups/deliveries |
-| `CollectionTrip` / `DeliveryTrip` | Trip-based logistics |
-| `ClaimQuotation` / `ClaimInvoice` | Quotation & invoicing |
-| `ClaimPart` / `ClaimServiceCharge` | Parts & service charges for claims |
+| `ClaimPart` | Parts used in claim repairs |
+| `ClaimServiceCharge` | Service charges (LABOR, SERVICE_VISIT, etc.) |
+| `ClaimQuotation` / `QuotationItem` | Repair cost estimates |
+| `ClaimInvoice` / `InvoiceItem` | Final billing documents |
+
+### Workflow Tables
+
+| Model | Description |
+|-------|-------------|
+| `Workflow` | Process templates with trigger types |
+| `WorkflowStep` | Individual steps with SLA definitions |
+| `StepTransition` | Step connections with conditional logic |
+| `StepNotification` | Notifications triggered on step events |
+
+### Logistics Tables
+
+| Model | Description |
+|-------|-------------|
+| `Collector` | Logistics personnel (name, phone, vehicleNumber, status) |
+| `Pickup` | Individual item collections |
+| `CollectionTrip` | Batch collections from shops |
+| `CollectionItem` | Items within collection trip |
+| `Delivery` | Individual deliveries |
+| `DeliveryTrip` | Batch deliveries to destinations |
+| `DeliveryItem` | Items within delivery trip |
 
 ### Key Enums
 
 | Enum | Values | Description |
 |------|--------|-------------|
 | `ClaimAcceptanceStatus` | `PENDING`, `ACCEPTED`, `REJECTED` | Acceptance status for claims from collections |
+| `WarrantyCardStatus` | `ACTIVE`, `EXPIRED`, `VOID`, `CLAIMED` | Warranty card lifecycle |
 | `PickupStatus` | `PENDING`, `ASSIGNED`, `IN_TRANSIT`, `COMPLETED`, `CANCELLED`, `REJECTED` | Pickup lifecycle |
 | `DeliveryStatus` | `PENDING`, `ASSIGNED`, `IN_TRANSIT`, `COMPLETED`, `FAILED`, `CANCELLED` | Delivery lifecycle |
 | `CollectionTripStatus` | `IN_PROGRESS`, `IN_TRANSIT`, `RECEIVED`, `CANCELLED` | Collection trip lifecycle |
 | `DeliveryTripStatus` | `PENDING`, `ASSIGNED`, `IN_TRANSIT`, `COMPLETED`, `PARTIAL`, `CANCELLED` | Delivery trip lifecycle |
+| `CollectionItemStatus` | `COLLECTED`, `RECEIVED`, `PROCESSED`, `REJECTED` | Item status in collection |
+| `QuotationStatus` | `DRAFT`, `SENT`, `VIEWED`, `APPROVED`, `REJECTED`, `EXPIRED`, `CONVERTED` | Quotation lifecycle |
+| `InvoiceStatus` | `DRAFT`, `GENERATED`, `SENT`, `PAID`, `PARTIALLY_PAID`, `CANCELLED` | Invoice lifecycle |
+
+### Claim Model Key Fields
+
+```prisma
+model WarrantyClaim {
+  // Identity
+  claimNumber          String
+
+  // Status tracking
+  currentStatus        String    // pending_acceptance, in_progress, resolved, rejected
+  currentStepId        Int?
+  currentLocation      String    // SHOP, CUSTOMER, IN_TRANSIT, SERVICE_CENTER
+
+  // Acceptance (for claims from collections)
+  acceptanceStatus     ClaimAcceptanceStatus  // PENDING, ACCEPTED, REJECTED
+  acceptedAt           DateTime?
+  acceptedBy           Int?
+
+  // Warranty
+  isUnderWarranty      Boolean
+  warrantyOverrideBy   Int?
+  warrantyOverrideAt   DateTime?
+  warrantyOverrideReason String?
+
+  // Quotation
+  requiresQuotation    Boolean
+  quotationApprovedAt  DateTime?
+
+  // Relationships
+  warrantyCard         WarrantyCard
+  product              Product?
+  customer             Customer?
+  workflow             Workflow?
+  assignedTo           User?
+}
+```
+
+## ID Generation Patterns
+
+All auto-generated IDs follow: `PREFIX + YYMMDD + sequence`
+
+| Entity | Prefix | Example |
+|--------|--------|---------|
+| Warranty Cards | WC | WC24122300001 |
+| Claims | CL | CL24122300001 |
+| Pickups | PU | PU24122300001 |
+| Collection Trips | CT | CT24122300001 |
+| Delivery Trips | DT | DT24122300001 |
+| Quotations | QT | QT24122300001 |
 
 ## Permission System
 
@@ -166,8 +273,9 @@ Permissions are stored as string arrays in the `Role.permissions` JSON field.
 | `customers.view/create/edit/delete` | Customer management |
 | `warranty_cards.view/create/edit/void` | Warranty management |
 | `claims.view/view_all/view_assigned/create/edit/process/assign/close` | Claim management |
+| `claims.accept` | Accept/reject pending claims |
 | `workflows.view/create/edit/delete` | Workflow management |
-| `logistics.view/manage_pickups/manage_deliveries/manage_collectors` | Logistics |
+| `logistics.view/manage_pickups/manage_deliveries/manage_collectors` | Logistics admin |
 | `logistics.my_trips/collect/deliver/receive/create_collection/create_delivery` | Logistics operations |
 
 ### Default Roles
@@ -176,7 +284,114 @@ Permissions are stored as string arrays in the `Role.permissions` JSON field.
 - **Manager**: Most permissions except delete/admin
 - **Technician**: View + process assigned claims
 - **Receptionist**: Create warranty cards, customers, claims
-- **Collector**: Logistics collection/delivery operations
+- **Collector**: Logistics collection/delivery operations (`logistics.my_trips`, `logistics.collect`, `logistics.deliver`)
+
+## Complete System Flow
+
+### End-to-End Claim Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           CLAIM CREATION PATHS                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PATH A: Direct Creation                PATH B: From Collection             │
+│  ─────────────────────────              ───────────────────────             │
+│  Staff creates claim manually    OR     Pickup scheduled for item           │
+│           ↓                                       ↓                         │
+│  Workflow starts immediately            Collector starts pickup             │
+│                                                   ↓                         │
+│                                         Collection trip created             │
+│                                                   ↓                         │
+│                                         Items collected at shop             │
+│                                                   ↓                         │
+│                                         Trip marked IN_TRANSIT              │
+│                                                   ↓                         │
+│                                         Service center RECEIVES trip        │
+│                                                   ↓                         │
+│                                         Claims auto-created with            │
+│                                         acceptanceStatus: PENDING           │
+│                                                   ↓                         │
+│                                         Staff reviews in                    │
+│                                         "Pending Acceptance" page           │
+│                                                   ↓                         │
+│                                    ┌─────────────┴─────────────┐            │
+│                                    ↓                           ↓            │
+│                              ACCEPT                        REJECT           │
+│                           (validates fields)          (requires reason)     │
+│                                    ↓                           ↓            │
+│                           Workflow starts           Return delivery         │
+│                                                     scheduled               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           WORKFLOW PROCESSING                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  START step → ACTION steps (diagnosis, repair, QC) → END step              │
+│                                                                             │
+│  Features:                                                                  │
+│  • Step types: START, ACTION, DECISION, NOTIFICATION, WAIT, END            │
+│  • Conditional transitions (ALWAYS, USER_CHOICE, CONDITIONAL)              │
+│  • Per-step SLA tracking                                                   │
+│  • Auto-assignment rules                                                   │
+│  • Sub-tasks within steps                                                  │
+│  • SMS/Email notifications on step events                                  │
+│  • Rollback capability (with permissions)                                  │
+│                                                                             │
+│  If out-of-warranty:                                                       │
+│  • Create quotation → Send to customer → Await approval                    │
+│  • Approved → Continue workflow                                            │
+│  • Rejected → Return to customer                                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           COMPLETION & DELIVERY                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Workflow reaches END step                                                  │
+│           ↓                                                                 │
+│  Invoice generated (from quotation or direct)                              │
+│           ↓                                                                 │
+│  Payment recorded (if applicable)                                          │
+│           ↓                                                                 │
+│  Delivery trip scheduled                                                   │
+│           ↓                                                                 │
+│  Collector delivers to shop/customer                                       │
+│           ↓                                                                 │
+│  Claim marked RESOLVED                                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Logistics Status Flows
+
+```
+PICKUPS:
+PENDING ──→ ASSIGNED ──→ IN_TRANSIT ──→ COMPLETED
+                │
+                └──→ REJECTED (inspection failed)
+                └──→ CANCELLED
+
+COLLECTION TRIPS:
+IN_PROGRESS ──→ IN_TRANSIT ──→ RECEIVED
+      │
+      └──→ CANCELLED
+
+DELIVERIES:
+PENDING ──→ ASSIGNED ──→ IN_TRANSIT ──→ COMPLETED
+                │
+                └──→ FAILED
+                └──→ CANCELLED
+
+DELIVERY TRIPS:
+PENDING ──→ ASSIGNED ──→ IN_TRANSIT ──→ COMPLETED
+                │                  │
+                │                  └──→ PARTIAL (some items failed)
+                └──→ CANCELLED
+```
 
 ## API Patterns
 
@@ -246,94 +461,141 @@ export async function GET(request: NextRequest) {
 }
 ```
 
+### Transaction Pattern
+
+```typescript
+const result = await prisma.$transaction(async (tx) => {
+  await tx.model1.create({...});
+  await tx.model2.update({...});
+  return tx.model3.findUnique({...});
+});
+```
+
 ## Key API Endpoints
 
 ### Claims
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/claims` | GET/POST | List/create claims |
+| `/api/claims` | GET | List claims (filters: status, assignedTo, search) |
+| `/api/claims` | POST | Create new claim |
 | `/api/claims/[id]` | GET/PUT/DELETE | Claim CRUD |
 | `/api/claims/[id]/accept` | POST | Accept or reject pending claim |
-| `/api/claims/[id]/update-pending` | PUT | Update pending claim details |
-| `/api/claims/pending-acceptance` | GET | Get pending claims grouped by collector/shop |
+| `/api/claims/[id]/update-pending` | PUT | Update pending claim details before acceptance |
+| `/api/claims/pending-acceptance` | GET | Get pending claims grouped by Collector → Shop |
+| `/api/claims/[id]/quotation` | GET/POST/PUT | Quotation management |
+| `/api/claims/[id]/invoice` | GET/POST/PUT | Invoice management |
+| `/api/claims/[id]/parts` | GET/POST | Claim parts management |
 | `/api/claims/bulk` | POST/PUT | Bulk operations |
 
 ### Logistics
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/logistics/pickups` | GET/POST | List/create pickups |
-| `/api/logistics/pickups/[id]` | GET/PUT/DELETE/PATCH | Pickup CRUD + status changes |
-| `/api/logistics/pickups/[id]` (PATCH: start) | PATCH | Start pickup → creates/joins collection trip |
+| `/api/logistics/pickups/[id]` | GET/PUT/DELETE | Pickup CRUD |
+| `/api/logistics/pickups/[id]` | PATCH | Status changes (assign, start, complete, reject) |
 | `/api/logistics/collection-trips` | GET/POST | List/create collection trips |
-| `/api/logistics/collection-trips/[id]/receive` | POST | Receive trip at service center, creates claims |
+| `/api/logistics/collection-trips/[id]` | GET/PATCH | Trip details/status |
+| `/api/logistics/collection-trips/[id]/items` | GET/POST | Manage trip items |
+| `/api/logistics/collection-trips/[id]/receive` | POST | Receive trip → creates claims |
+| `/api/logistics/deliveries` | GET/POST | List/create deliveries |
+| `/api/logistics/deliveries/[id]` | GET/PUT/PATCH | Delivery CRUD + status |
 | `/api/logistics/delivery-trips` | GET/POST | List/create delivery trips |
-| `/api/logistics/delivery-trips/[id]` | PATCH | Status transitions (dispatch, complete) |
+| `/api/logistics/delivery-trips/[id]` | GET/PATCH | Trip details/status (dispatch, complete) |
+| `/api/logistics/delivery-trips/[id]/items/[itemId]` | PATCH | Update delivery item status |
+| `/api/logistics/collectors` | GET/POST | List/create collectors |
+| `/api/logistics/collectors/[id]` | GET/PUT/DELETE | Collector CRUD |
 
 ### Workflows
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/workflows/[id]/execute` | POST | Execute workflow step |
-| `/api/workflows/[id]/execute` | PATCH | Rollback step |
-| `/api/workflows/steps/[stepId]/eligible-users` | GET | Get eligible users for step |
+| `/api/workflows` | GET/POST | List/create workflows |
+| `/api/workflows/[id]` | GET/PUT/DELETE | Workflow CRUD |
+| `/api/workflows/[id]/execute` | POST | Execute workflow step transition |
+| `/api/workflows/[id]/execute` | PATCH | Rollback to previous step |
+| `/api/workflows/steps/[stepId]/eligible-users` | GET | Get users eligible for step assignment |
+
+### Other
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/inventory` | GET/POST | Inventory items |
+| `/api/inventory/[id]/adjust` | POST | Stock adjustment |
+| `/api/notification-templates` | GET/POST | SMS/Email templates |
+| `/api/dashboard/stats` | GET | Dashboard statistics |
 
 ## Key Features
 
 ### 1. Workflow Engine
 
-- Configurable workflow templates with steps
-- Step types: START, ACTION, DECISION, NOTIFICATION, WAIT, END
-- SLA tracking per step
-- Auto-assignment rules
-- Step notifications (SMS/Email)
-- Sub-tasks within steps
-- Per-claim step user assignments
+- **Step Types**: START, ACTION, DECISION, NOTIFICATION, WAIT, END
+- **Transitions**: ALWAYS (auto), USER_CHOICE (manual), CONDITIONAL (rule-based)
+- **SLA Tracking**: Per-step time limits with escalation
+- **Auto-assignment**: Rule-based user assignment
+- **Sub-tasks**: Checklist items within steps (must complete before step transition)
+- **Notifications**: SMS/Email on ON_ENTER, ON_EXIT, escalation events
+- **Rollback**: Return to previous steps (with permission check)
 
-### 2. Logistics System
+### 2. Claim Acceptance Workflow
+
+For claims created from collections:
+
+1. Claims arrive with `acceptanceStatus: PENDING`
+2. Staff views grouped claims in `/claims/pending-acceptance`
+3. Claims grouped by: **Collector → Shop → Claims**
+4. Required fields for acceptance:
+   - Product (linked)
+   - Customer (linked)
+   - Issue Description
+5. Staff can edit missing fields via `/api/claims/[id]/update-pending`
+6. **Accept**: Validates fields → starts workflow → creates history entry
+7. **Reject**: Requires reason → schedules return delivery → records in history
+
+### 3. Logistics System
 
 **Individual Operations:**
-- Pickups: PENDING → ASSIGNED → IN_TRANSIT → COMPLETED/REJECTED
-- Deliveries: PENDING → ASSIGNED → IN_TRANSIT → COMPLETED/FAILED
+- Pickups: Schedule collection from shop/customer
+- Deliveries: Schedule return to shop/customer
 
 **Trip-Based (Batch):**
-- Collection Trips: Group multiple items from same shop/customer
-- Delivery Trips: Batch completed claims to same destination
-- Items tracked individually within trips
+- Collection Trips: Collector picks up multiple items in one trip
+- Delivery Trips: Deliver multiple completed claims together
 
-**Pickup → Collection → Claims Flow:**
-```
-Schedule Pickup → Collector sees in My Trips → Start Pickup (creates Collection Trip)
-                                                      ↓
-Collector collects items → Marks trip IN_TRANSIT → Service center receives
-                                                      ↓
-Claims created with PENDING acceptance → Staff reviews in "Pending Acceptance"
-                                                      ↓
-                                    ┌─────────────────┴─────────────────┐
-                                    ↓                                   ↓
-                              ACCEPT (with all fields)           REJECT (with reason)
-                                    ↓                                   ↓
-                           Workflow starts                    Return delivery scheduled
-```
+**Collector Dashboard** (`/logistics/my-trips`):
+- **Pickups Tab**: Pending/assigned pickups to start
+- **Collections Tab**: Active collection trips (IN_PROGRESS, IN_TRANSIT)
+- **Deliveries Tab**: Assigned delivery trips
 
-**Acceptance Workflow:**
-- Claims from collections start with `acceptanceStatus: PENDING`
-- Pending claims grouped by Collector → Shop for efficient review
-- Required fields for acceptance: Product, Customer, Issue Description
-- Staff can edit missing fields before accepting
-- Rejected items go to return delivery queue
+**Collection Trip Receive Process** (`/api/logistics/collection-trips/[id]/receive`):
+1. Creates warranty cards for unregistered items
+2. Creates claims with `acceptanceStatus: PENDING`
+3. Updates pickup statuses to COMPLETED
+4. Returns summary with processed/error/skipped counts
 
-### 3. Inventory Management
+### 4. Inventory Management
 
-- Parts/components catalog with categories
-- Stock tracking (quantity, reserved, reorder levels)
-- Transaction history
+- Parts/components catalog with hierarchical categories
+- Stock tracking: quantity, reserved, reorder level, low stock alerts
+- Transaction history (IN, OUT, ADJUST, RESERVE, RELEASE)
 - Integration with claim parts & quotations
 
-### 4. Quotation & Invoice System
+### 5. Quotation & Invoice System
 
-- Create quotations for out-of-warranty repairs
-- Convert approved quotations to invoices
-- Track payments
-- Warranty-covered vs chargeable items
+**Quotations:**
+- Item types: PART, SERVICE, LABOR, OTHER
+- Tax & discount support (percentage or fixed)
+- Status flow: DRAFT → SENT → VIEWED → APPROVED/REJECTED → CONVERTED
+- Validity period tracking
+- Customer notification (email/SMS)
+
+**Invoices:**
+- Created from approved quotation or direct
+- Customer snapshot at invoice time
+- Payment tracking: UNPAID → PARTIAL → PAID
+- Warranty-covered amount segregation
+- Ready-for-delivery flag
 
 ## Commands
 
@@ -360,16 +622,20 @@ npm run db:reset         # Reset database
 DATABASE_URL="mysql://user:password@localhost:3306/codelink_servicehub"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="your-secret-key"
+AUTH_SECRET="your-secret-key"
+AUTH_TRUST_HOST=true
 JWT_SECRET="your-jwt-secret"
 
 # Optional - Cron & Notifications
 CRON_SECRET="your-cron-secret"
 
-# Email (SendGrid)
-EMAIL_PROVIDER="sendgrid"
-SENDGRID_API_KEY="your-api-key"
-SENDGRID_FROM_EMAIL="noreply@yourcompany.com"
-SENDGRID_FROM_NAME="CodeLink ServiceHub"
+# Email (SMTP)
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT="587"
+SMTP_USER="your-email"
+SMTP_PASSWORD="your-password"
+SMTP_FROM_EMAIL="noreply@yourcompany.com"
+SMTP_FROM_NAME="CodeLink ServiceHub"
 
 # SMS (Twilio)
 SMS_PROVIDER="twilio"
@@ -479,6 +745,8 @@ import { Plus, Edit, Trash2, Eye, Search, Filter } from "lucide-react";
 6. **Notifications**: Use `sonner` toast for user feedback
 7. **Loading states**: Use `Loading` component or Skeleton
 8. **Empty states**: Use `EmptyState` component
+9. **Transactions**: Use `prisma.$transaction()` for multi-step operations
+10. **History tracking**: Create `ClaimHistory` entries for all claim state changes
 
 ## Current Modules Status
 
@@ -495,14 +763,13 @@ import { Plus, Edit, Trash2, Eye, Search, Filter } from "lucide-react";
 | Workflows | Complete |
 | Sub-tasks | Complete |
 | Step Assignments | Complete |
-| Logistics (Basic) | Complete |
+| Logistics (Individual) | Complete |
 | Logistics (Trip-based) | Complete |
-| Pending Review/Rejection | Complete |
-| Pickup-Collection Integration | Complete |
-| Claim Acceptance Workflow | Complete |
+| Collector Dashboard | Complete |
+| Pending Acceptance | Complete |
 | Quotations | Complete |
 | Invoices | Complete |
 | Parts & Service Charges | Complete |
-| Notifications | Complete |
+| Notifications (SMS/Email) | Complete |
 | Settings | Placeholder |
 | Reports | Not started |

@@ -171,6 +171,9 @@ export async function GET(request: NextRequest) {
         collector: {
           select: { id: true, name: true, phone: true, vehicleNumber: true },
         },
+        route: {
+          select: { id: true, name: true, zone: true, areas: true },
+        },
         fromShop: {
           select: { id: true, name: true, address: true, phone: true },
         },
@@ -203,17 +206,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validatedData = createPickupSchema.parse(body);
 
-    let claimId = validatedData.claimId;
-    let warrantyCardId = validatedData.warrantyCardId;
+    const claimId = validatedData.claimId || null;
+    const warrantyCardId = validatedData.warrantyCardId || null;
     let shopId = validatedData.fromShopId;
     let fromAddress = validatedData.fromAddress;
 
-    // Must have either claimId or warrantyCardId
-    if (!claimId && !warrantyCardId) {
-      return errorResponse("Either claim or warranty card is required", "VALIDATION_ERROR", 400);
-    }
-
-    // If we have a claim, use it
+    // If claim provided, verify it exists
     let claim = null;
     let warrantyCard = null;
 
@@ -239,9 +237,20 @@ export async function POST(request: NextRequest) {
       }
 
       warrantyCard = claim.warrantyCard;
-      warrantyCardId = warrantyCard.id;
+
+      // Check if pickup already exists for this claim
+      const existingPickup = await prisma.pickup.findFirst({
+        where: {
+          claimId: claimId,
+          status: { notIn: ["COMPLETED", "CANCELLED"] },
+        },
+      });
+
+      if (existingPickup) {
+        return errorResponse("An active pickup already exists for this claim", "PICKUP_EXISTS", 400);
+      }
     } else if (warrantyCardId) {
-      // Find warranty card
+      // Find warranty card if provided
       warrantyCard = await prisma.warrantyCard.findFirst({
         where: {
           id: warrantyCardId,
@@ -257,53 +266,37 @@ export async function POST(request: NextRequest) {
       if (!warrantyCard) {
         return errorResponse("Warranty card not found", "WARRANTY_CARD_NOT_FOUND", 400);
       }
+    }
+    // If neither claim nor warranty card - just create a pickup schedule
+    // Items will be added later by collector
 
-      // Create a claim for this pickup
-      const claimNumber = await generateClaimNumber(user.tenantId);
-
-      // Find default workflow
-      const defaultWorkflow = await prisma.workflow.findFirst({
+    // Handle route - either use existing or create new
+    let routeId = validatedData.routeId || null;
+    if (!routeId && validatedData.newRoute) {
+      // Create new route
+      const existingRoute = await prisma.route.findFirst({
         where: {
           tenantId: user.tenantId,
-          isDefault: true,
-          isActive: true,
+          name: validatedData.newRoute.name,
         },
-        include: {
-          steps: {
-            orderBy: { stepOrder: "asc" },
-            take: 1,
+      });
+
+      if (existingRoute) {
+        // Use existing route with same name
+        routeId = existingRoute.id;
+      } else {
+        // Create new route
+        const newRoute = await prisma.route.create({
+          data: {
+            tenantId: user.tenantId,
+            name: validatedData.newRoute.name,
+            zone: validatedData.newRoute.zone || null,
+            areas: validatedData.newRoute.areas || null,
+            status: "ACTIVE",
           },
-        },
-      });
-
-      claim = await prisma.warrantyClaim.create({
-        data: {
-          tenantId: user.tenantId,
-          warrantyCardId: warrantyCardId,
-          claimNumber,
-          issueDescription: validatedData.issueDescription || "Pickup scheduled - Issue to be inspected",
-          priority: validatedData.priority || "MEDIUM",
-          currentStatus: defaultWorkflow?.steps[0]?.statusName || "received",
-          currentStepId: defaultWorkflow?.steps[0]?.id || null,
-          workflowId: defaultWorkflow?.id || null,
-          currentLocation: validatedData.fromType === "SHOP" ? "SHOP" : "CUSTOMER",
-          createdBy: user.id,
-        },
-      });
-
-      claimId = claim.id;
-    }
-
-    // Check if pickup already exists for this claim
-    const existingPickup = await prisma.pickup.findFirst({
-      where: {
-        claimId: claimId!,
-        status: { notIn: ["COMPLETED", "CANCELLED"] },
-      },
-    });
-
-    if (existingPickup) {
-      return errorResponse("An active pickup already exists for this claim", "PICKUP_EXISTS", 400);
+        });
+        routeId = newRoute.id;
+      }
     }
 
     // Verify collector if provided
@@ -354,9 +347,11 @@ export async function POST(request: NextRequest) {
     const pickup = await prisma.pickup.create({
       data: {
         tenantId: user.tenantId,
-        claimId: claimId!,
-        warrantyCardId: warrantyCardId || null,
+        claimId: claimId,
+        warrantyCardId: warrantyCardId,
         pickupNumber,
+        routeId: routeId,
+        routeArea: validatedData.routeArea || null,
         collectorId: validatedData.collectorId || null,
         fromType: validatedData.fromType,
         fromShopId: shopId || null,
@@ -384,6 +379,9 @@ export async function POST(request: NextRequest) {
         },
         collector: {
           select: { id: true, name: true, phone: true },
+        },
+        route: {
+          select: { id: true, name: true, zone: true, areas: true },
         },
         fromShop: {
           select: { id: true, name: true, address: true },

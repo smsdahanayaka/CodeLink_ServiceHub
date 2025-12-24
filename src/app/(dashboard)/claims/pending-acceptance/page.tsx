@@ -133,7 +133,7 @@ export default function PendingAcceptancePage() {
       if (result.success) {
         setData(result.data);
         // Expand all by default
-        const collectorKeys = new Set(
+        const collectorKeys = new Set<string>(
           result.data.groups.map((_: CollectorGroup, i: number) => `collector_${i}`)
         );
         setExpandedCollectors(collectorKeys);

@@ -154,7 +154,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           select: { id: true, name: true },
         },
         currentStep: {
-          select: { id: true, stepName: true, statusName: true },
+          select: { id: true, name: true, statusName: true },
         },
       },
     });
