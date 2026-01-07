@@ -195,28 +195,33 @@ For detailed information, see [Industry Permission System](INDUSTRY_PERMISSION_S
 | 1.3 | Dec 2024 | Added Phase 5: Claim Finalization & Invoice System |
 | 1.4 | Dec 2024 | Industry-Standard Permission System, Unified Dashboard, Security Improvements |
 | 1.5 | Dec 2024 | Pending Review System, Rejected Items Management, Pickup UX Improvements |
+| 1.6 | Jan 2025 | Claim Finalization UI, Pickup-Collection Integration, Pending Acceptance Workflow |
 
 ---
 
-## Latest Updates (v1.5)
+## Latest Updates (v1.6)
 
-### Pending Review System
-- Completed pickups now appear in Claims page for review
-- Staff can Accept (moves claim to processing) or Reject (with reason)
-- Claims page has new "Pending Review" and "All Claims" tabs
-- New API endpoints for pending review workflow
+### Claim Finalization UI
+- ClaimFinalizationSection component with multi-tab interface
+- Parts Used tab with inventory search and manual entry
+- Service Charges tab for labor, service visit, transportation costs
+- Items to Issue tab for tracking new items given to customer
+- Invoice Preview tab with PDF download and send options
 
-### Rejected Items Management
-- New page at `/logistics/rejected` for rejected pickups
-- Multi-select items and batch create return deliveries
-- Logistics dashboard shows rejected items count
-- Quick action card for rejected items
+### Pickup-Collection-Claims Integration
+- ClaimAcceptanceStatus enum (PENDING, ACCEPTED, REJECTED)
+- Claim acceptance tracking fields
+- Pickup-CollectionTrip linking via collectionTripId
+- Pending Acceptance page at `/claims/pending-acceptance`
+- Item-wise receiving flow with warranty verification
+- Grouped view by Collector → Shop → Items
 
-### Pickup UX Improvements
-- Auto-assign collector when collector creates a pickup
-- Mobile-friendly Schedule Pickup dialog with fixed footer
-- Complete Pickup dialog now shows user selector for receiver
-- Claim creator shown first with "(Claim Creator)" label
+### Tech Stack Updates
+- Next.js 16 with App Router
+- React 19.x with TypeScript 5.x
+- Tailwind CSS 4.x
+- MySQL with Prisma ORM 5.x
+- 51 database models, 32 enums
 
 ---
 

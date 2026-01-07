@@ -1,7 +1,7 @@
 # CodeLink ServiceHub - Project Status
 
-## Current Version: 1.5.0
-**Last Updated:** December 2024
+## Current Version: 1.6.0
+**Last Updated:** January 2025
 
 ---
 
@@ -9,12 +9,14 @@
 
 CodeLink ServiceHub is a comprehensive warranty management and service center application built with:
 
-- **Frontend:** Next.js 14 (App Router), React 18, TypeScript
-- **Styling:** Tailwind CSS, shadcn/ui components
+- **Frontend:** Next.js 16 (App Router), React 19.x, TypeScript 5.x
+- **Styling:** Tailwind CSS 4.x, shadcn/ui components
 - **Backend:** Next.js API Routes
-- **Database:** PostgreSQL with Prisma ORM
-- **Authentication:** NextAuth.js v5 (Auth.js)
-- **State Management:** React hooks, Context API
+- **Database:** MySQL with Prisma ORM 5.x
+- **Authentication:** NextAuth.js v5 (Auth.js) 5.0.0-beta.30
+- **State Management:** Zustand + TanStack Query 5.x
+- **Forms:** React Hook Form 7.x + Zod 4.x
+- **Drag & Drop:** @dnd-kit 6.x
 
 ---
 
@@ -51,11 +53,16 @@ CodeLink ServiceHub is a comprehensive warranty management and service center ap
 - [x] Trip status tracking
 
 ### Phase 5: Claim Finalization & Invoice ✅
-- [x] Quotation generation
+- [x] Quotation generation with item management
 - [x] Customer approval workflow
-- [x] Invoice generation
-- [x] Payment tracking
+- [x] Invoice generation from quotations or direct
+- [x] Payment tracking (UNPAID → PARTIAL → PAID)
 - [x] Claim resolution flow
+- [x] Parts used tracking (ClaimPart - inventory & manual)
+- [x] Service charges tracking (ClaimServiceCharge)
+- [x] Claim Finalization Section component (multi-tab UI)
+- [x] Items to issue tracking
+- [x] Ready-for-delivery flag integration
 
 ### Phase 6: Permission System Overhaul ✅
 - [x] Industry-standard RBAC implementation
@@ -73,6 +80,23 @@ CodeLink ServiceHub is a comprehensive warranty management and service center ap
 - [x] Mobile-friendly pickup dialogs with fixed footer
 - [x] Receiver name user selector in Complete Pickup
 
+### Phase 8: Pickup-Collection-Claims Integration ✅
+- [x] ClaimAcceptanceStatus enum (PENDING, ACCEPTED, REJECTED)
+- [x] Claim acceptance tracking fields
+- [x] Pickup-CollectionTrip linking
+- [x] Pending Acceptance page (/claims/pending-acceptance)
+- [x] Item-wise receiving with warranty verification
+- [x] Auto warranty card creation during receive
+- [x] Grouped view: Collector → Shop → Items
+
+### Phase 9: Claim Finalization UI ✅
+- [x] ClaimFinalizationSection component
+- [x] Parts Used tab with inventory search
+- [x] Service Charges tab
+- [x] Items to Issue tab
+- [x] Invoice Preview tab
+- [x] Multi-step finalization flow
+
 ---
 
 ## Current File Structure
@@ -81,72 +105,132 @@ CodeLink ServiceHub is a comprehensive warranty management and service center ap
 src/
 ├── app/
 │   ├── (auth)/
+│   │   ├── layout.tsx
 │   │   └── login/page.tsx
 │   ├── (dashboard)/
-│   │   ├── dashboard/page.tsx          # Main dashboard
-│   │   ├── users/                       # User management
-│   │   ├── roles/                       # Role management
-│   │   ├── products/                    # Product catalog
-│   │   ├── inventory/                   # Inventory management
-│   │   ├── shops/                       # Shop management
-│   │   ├── customers/                   # Customer database
-│   │   ├── warranty/                    # Warranty cards
-│   │   ├── claims/                      # Warranty claims
-│   │   ├── workflows/                   # Workflow management
-│   │   ├── my-tasks/                    # Personal task inbox
-│   │   ├── logistics/                   # Logistics module
-│   │   │   ├── page.tsx                 # Logistics dashboard
-│   │   │   ├── collectors/              # Collector management
-│   │   │   ├── pickups/                 # Pickup management
-│   │   │   ├── deliveries/              # Delivery management
-│   │   │   ├── my-trips/                # Collector's trips
-│   │   │   ├── collect/                 # Collection execution
-│   │   │   ├── deliver/                 # Delivery execution
-│   │   │   ├── receive/                 # Item receiving
-│   │   │   ├── delivery-trips/          # Delivery trip management
-│   │   │   └── ready-for-delivery/      # Ready items list
 │   │   ├── layout.tsx                   # Dashboard layout
-│   │   └── unified-dashboard.tsx        # Dashboard component
+│   │   ├── dashboard/page.tsx           # Main dashboard
+│   │   ├── users/                       # User management (list, new, [id])
+│   │   ├── roles/                       # Role management (list, new, [id])
+│   │   ├── products/                    # Product catalog (list, new, [id], categories)
+│   │   ├── inventory/                   # Inventory management (list, new, [id], categories)
+│   │   ├── shops/                       # Shop management (list, new, [id])
+│   │   ├── customers/                   # Customer database (list, new, [id])
+│   │   ├── warranty/                    # Warranty cards (list, new, [id], [id]/edit, verify)
+│   │   ├── claims/                      # Warranty claims
+│   │   │   ├── page.tsx                 # Claims list with tabs
+│   │   │   ├── new/page.tsx             # Create new claim
+│   │   │   ├── [id]/page.tsx            # Claim detail with workflow
+│   │   │   └── pending-acceptance/page.tsx  # Receive collections
+│   │   ├── workflows/                   # Workflow management (list, new, [id], [id]/edit)
+│   │   ├── my-tasks/page.tsx            # Personal task inbox
+│   │   └── logistics/
+│   │       ├── page.tsx                 # Logistics dashboard
+│   │       ├── collectors/page.tsx      # Collector management
+│   │       ├── pickups/page.tsx         # Pickup management
+│   │       ├── deliveries/page.tsx      # Individual deliveries
+│   │       ├── my-trips/page.tsx        # Collector's active trips
+│   │       ├── collect/page.tsx         # Start new collection
+│   │       ├── collect/[id]/page.tsx    # Collection trip detail
+│   │       ├── receive/[id]/page.tsx    # Receive trip items
+│   │       ├── collection-trips/page.tsx # Collection trips list
+│   │       ├── delivery-trips/          # Delivery trip management
+│   │       │   ├── page.tsx             # Delivery trips list
+│   │       │   ├── new/page.tsx         # Create delivery trip
+│   │       │   └── [id]/page.tsx        # Delivery trip detail
+│   │       ├── ready-for-delivery/page.tsx  # Ready items list
+│   │       └── rejected/page.tsx        # Rejected items
 │   ├── api/
 │   │   ├── auth/[...nextauth]/route.ts
 │   │   ├── dashboard/route.ts           # Unified dashboard API
 │   │   ├── users/
 │   │   ├── roles/
-│   │   ├── permissions/
+│   │   ├── permissions/route.ts
 │   │   ├── products/
+│   │   ├── categories/
 │   │   ├── inventory/
 │   │   ├── shops/
 │   │   ├── customers/
 │   │   ├── warranty-cards/
 │   │   ├── claims/
+│   │   │   ├── route.ts                 # List/create claims
+│   │   │   ├── [id]/route.ts            # Claim CRUD
+│   │   │   ├── [id]/accept/route.ts     # Accept/reject pending
+│   │   │   ├── [id]/update-pending/route.ts
+│   │   │   ├── [id]/quotation/route.ts  # Quotation management
+│   │   │   ├── [id]/invoice/route.ts    # Invoice management
+│   │   │   ├── [id]/parts/route.ts      # Claim parts
+│   │   │   ├── [id]/service-charges/route.ts
+│   │   │   ├── [id]/step-assignments/   # Step user mapping
+│   │   │   ├── [id]/sub-tasks/          # Sub-tasks management
+│   │   │   ├── pending-acceptance/route.ts
+│   │   │   └── bulk/route.ts
 │   │   ├── workflows/
-│   │   └── logistics/
-│   │       ├── collectors/
-│   │       ├── collection-trips/
-│   │       └── delivery-trips/
+│   │   │   ├── [id]/execute/route.ts    # Execute/rollback steps
+│   │   │   └── steps/[stepId]/eligible-users/route.ts
+│   │   ├── logistics/
+│   │   │   ├── collectors/
+│   │   │   ├── pickups/
+│   │   │   │   ├── [id]/route.ts
+│   │   │   │   ├── pending-review/route.ts
+│   │   │   │   └── rejected/route.ts
+│   │   │   ├── collection-trips/
+│   │   │   │   ├── [id]/route.ts
+│   │   │   │   ├── [id]/items/route.ts
+│   │   │   │   ├── [id]/items/[itemId]/receive/route.ts
+│   │   │   │   └── [id]/receive/route.ts
+│   │   │   ├── deliveries/
+│   │   │   └── delivery-trips/
+│   │   ├── notification-templates/
+│   │   ├── cron/                        # Cron job endpoints
+│   │   │   ├── sla-check/route.ts
+│   │   │   └── process-notifications/route.ts
+│   │   ├── my-tasks/route.ts
+│   │   └── workflow-templates/route.ts
+│   ├── globals.css
 │   ├── page.tsx                         # Root redirect
 │   └── layout.tsx                       # Root layout
 ├── components/
-│   ├── common/                          # Shared components
+│   ├── common/                          # Shared components (loading, empty-state, etc.)
+│   ├── claims/                          # Claim-specific components
+│   │   ├── step-assignment-mapper.tsx
+│   │   ├── sub-task-list.tsx
+│   │   ├── sub-task-form-dialog.tsx
+│   │   ├── next-user-selection-modal.tsx
+│   │   └── claim-finalization-section.tsx
 │   ├── dashboard/
-│   │   └── dashboard-sections.tsx       # Dashboard section components
+│   │   └── dashboard-sections.tsx       # Permission-based dashboard sections
 │   ├── layout/
 │   │   ├── header.tsx
 │   │   ├── sidebar.tsx
 │   │   ├── dashboard-shell.tsx
 │   │   └── page-header.tsx
-│   ├── tables/                          # Data table components
-│   └── ui/                              # shadcn/ui components
+│   ├── tables/
+│   │   └── data-table.tsx               # Reusable data table
+│   ├── ui/                              # shadcn/ui components (23+)
+│   └── providers.tsx                    # React context providers
 ├── lib/
 │   ├── auth.ts                          # NextAuth configuration
-│   ├── prisma.ts                        # Prisma client
+│   ├── prisma.ts                        # Prisma client singleton
 │   ├── api-utils.ts                     # API helper functions
-│   ├── hooks/                           # Custom React hooks
+│   ├── utils.ts                         # General utilities (cn, etc.)
+│   ├── email-provider.ts                # SendGrid/SMTP integration
+│   ├── sms-provider.ts                  # Twilio integration
+│   ├── workflow-notifications.ts        # Notification service
+│   ├── hooks/
+│   │   └── usePermissions.ts            # Permission checking hook
 │   ├── constants/
+│   │   ├── index.ts                     # App constants
 │   │   └── permissions.ts               # Permission definitions
 │   └── validations/
-│       └── index.ts                     # Zod schemas
+│       └── index.ts                     # Zod schemas (200+ lines)
+├── types/
+│   └── index.ts                         # TypeScript type definitions
 └── middleware.ts                        # Route protection
+
+prisma/
+├── schema.prisma                        # Database schema (51 models, 32 enums)
+└── seed.ts                              # Database seeder
 ```
 
 ---
@@ -243,7 +327,27 @@ src/
 
 ---
 
-## Recent Changes (v1.5.0)
+## Recent Changes (v1.6.0)
+
+### Claim Finalization System (Phase 9)
+- ClaimFinalizationSection component with multi-tab interface
+- Parts Used tab with inventory search and manual entry
+- Service Charges tab for labor, service visit, transportation costs
+- Items to Issue tab for tracking new items given to customer
+- Invoice Preview tab with PDF download and send options
+- Integration with ready-for-delivery workflow
+
+### Pickup-Collection-Claims Integration (Phase 8)
+- ClaimAcceptanceStatus enum (PENDING, ACCEPTED, REJECTED)
+- Claim acceptance tracking fields
+- Pickup-CollectionTrip linking via collectionTripId
+- Pending Acceptance page at /claims/pending-acceptance
+- Item-wise receiving flow with warranty verification
+- Grouped view by Collector → Shop → Items
+
+---
+
+## Changes in v1.5.0
 
 ### Pending Review System
 - Added `REJECTED` status to Pickup enum
@@ -281,15 +385,35 @@ src/
 ## Environment Variables
 
 ```env
-# Database
-DATABASE_URL="postgresql://user:pass@localhost:5432/servicehub"
+# Database (MySQL)
+DATABASE_URL="mysql://user:password@localhost:3306/codelink_servicehub"
 
 # NextAuth
 NEXTAUTH_SECRET="your-secret-key"
 NEXTAUTH_URL="http://localhost:3000"
+AUTH_SECRET="your-secret-key"
+AUTH_TRUST_HOST=true
+JWT_SECRET="your-jwt-secret"
 
 # Node Environment
 NODE_ENV="development"
+
+# Optional - Cron & Notifications
+CRON_SECRET="your-cron-secret"
+
+# Email (SMTP)
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT="587"
+SMTP_USER="your-email"
+SMTP_PASSWORD="your-password"
+SMTP_FROM_EMAIL="noreply@yourcompany.com"
+SMTP_FROM_NAME="CodeLink ServiceHub"
+
+# SMS (Twilio)
+SMS_PROVIDER="twilio"
+TWILIO_ACCOUNT_SID="your-account-sid"
+TWILIO_AUTH_TOKEN="your-auth-token"
+TWILIO_PHONE_NUMBER="+1234567890"
 ```
 
 ---
@@ -303,18 +427,26 @@ NODE_ENV="development"
 ## Future Enhancements
 
 ### Planned
-- [ ] Email notifications for claim updates
-- [ ] SMS notifications for deliveries
-- [ ] Report generation (PDF)
-- [ ] Analytics dashboard
-- [ ] Bulk import/export
-- [ ] API documentation (Swagger)
+- [ ] Report generation (PDF export for claims, invoices)
+- [ ] Analytics dashboard with charts
+- [ ] Bulk import/export (Excel/CSV)
+- [ ] API documentation (Swagger/OpenAPI)
+- [ ] Customer self-service portal
+- [ ] Barcode/QR scanning for inventory
 
 ### Under Consideration
 - [ ] Mobile app (React Native)
-- [ ] Barcode/QR scanning
-- [ ] Customer portal
-- [ ] Integrations (accounting, ERP)
+- [ ] WhatsApp Business integration
+- [ ] Integration with accounting systems (Tally, QuickBooks)
+- [ ] ERP integration
+- [ ] Multi-language support
+
+### Completed ✅
+- [x] Email notifications (SendGrid/SMTP)
+- [x] SMS notifications (Twilio)
+- [x] Claim finalization workflow
+- [x] Invoice generation system
+- [x] Payment tracking
 
 ---
 
@@ -355,4 +487,4 @@ npx tsc --noEmit
 
 ---
 
-*Last Updated: December 2024*
+*Last Updated: January 2025*

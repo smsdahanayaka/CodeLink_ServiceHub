@@ -63,6 +63,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         },
         items: {
           include: {
+            shop: {
+              select: { id: true, name: true, address: true, phone: true },
+            },
+            pickup: {
+              select: { id: true, pickupNumber: true, scheduledDate: true },
+            },
             warrantyCard: {
               select: {
                 id: true,
@@ -83,7 +89,28 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
               }
             },
           },
-          orderBy: { createdAt: "asc" },
+          orderBy: [{ shopId: "asc" }, { createdAt: "asc" }],
+        },
+        pickups: {
+          select: {
+            id: true,
+            pickupNumber: true,
+            fromType: true,
+            status: true,
+            scheduledDate: true,
+            scheduledTimeSlot: true,
+            customerName: true,
+            customerPhone: true,
+            fromShop: {
+              select: { id: true, name: true, address: true, phone: true },
+            },
+            route: {
+              select: { id: true, name: true, zone: true },
+            },
+            _count: {
+              select: { collectionItems: true },
+            },
+          },
         },
       },
     });

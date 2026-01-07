@@ -11,7 +11,6 @@ import {
   Package,
   Truck,
   Clock,
-  Plus,
   ArrowRight,
   MapPin,
   Phone,
@@ -22,6 +21,12 @@ import {
   Play,
   Loader2,
   Route,
+  Plus,
+  Check,
+  ChevronsUpDown,
+  PlusCircle,
+  Store,
+  User,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout";
@@ -36,8 +41,31 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command";
 import { toast } from "sonner";
-import { usePermissions } from "@/lib/hooks";
 
 interface CollectionTrip {
   id: number;
@@ -109,9 +137,15 @@ interface PendingPickup {
   } | null;
 }
 
+interface Shop {
+  id: number;
+  name: string;
+  address: string | null;
+  phone: string | null;
+}
+
 export default function MyTripsPage() {
   const router = useRouter();
-  const { hasPermission } = usePermissions();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -120,11 +154,45 @@ export default function MyTripsPage() {
   const [deliveryTrips, setDeliveryTrips] = useState<DeliveryTrip[]>([]);
   const [pendingPickups, setPendingPickups] = useState<PendingPickup[]>([]);
 
-  const canCreateCollection = hasPermission("logistics.create_collection") || hasPermission("logistics.collect");
+  // Create collection dialog state
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [creatingTrip, setCreatingTrip] = useState(false);
+  const [collectionType, setCollectionType] = useState<"SHOP" | "CUSTOMER">("SHOP");
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
+  const [shopComboOpen, setShopComboOpen] = useState(false);
+  const [shopSearchQuery, setShopSearchQuery] = useState("");
+  const [customerDetails, setCustomerDetails] = useState({
+    name: "",
+    phone: "",
+    address: "",
+  });
+
+  // Quick shop creation state
+  const [showCreateShop, setShowCreateShop] = useState(false);
+  const [creatingShop, setCreatingShop] = useState(false);
+  const [newShop, setNewShop] = useState({
+    name: "",
+    phone: "",
+    address: "",
+  });
 
   useEffect(() => {
     fetchMyTrips();
+    fetchShops();
   }, []);
+
+  const fetchShops = async () => {
+    try {
+      const res = await fetch("/api/shops?limit=200&status=ACTIVE");
+      const data = await res.json();
+      if (data.success) {
+        setShops(data.data);
+      }
+    } catch (error) {
+      console.error("Error fetching shops:", error);
+    }
+  };
 
   const fetchMyTrips = async (isRefresh = false) => {
     try {
@@ -179,8 +247,14 @@ export default function MyTripsPage() {
 
       if (data.success) {
         toast.success("Pickup started! Collection trip created.");
-        // Refresh to show the new collection trip
-        fetchMyTrips(true);
+        // Redirect to trip detail page to add items
+        const tripId = data.data.collectionTripId;
+        if (tripId) {
+          router.push(`/logistics/collect/${tripId}`);
+        } else {
+          // Fallback to refresh if no tripId (shouldn't happen)
+          fetchMyTrips(true);
+        }
       } else {
         throw new Error(data.error?.message || "Failed to start pickup");
       }
@@ -191,6 +265,121 @@ export default function MyTripsPage() {
       setStartingPickup(null);
     }
   };
+
+  // Create direct collection trip
+  const handleCreateCollection = async () => {
+    // Validate based on type
+    if (collectionType === "SHOP" && !selectedShopId) {
+      toast.error("Please select a shop");
+      return;
+    }
+    if (collectionType === "CUSTOMER") {
+      if (!customerDetails.name.trim()) {
+        toast.error("Customer name is required");
+        return;
+      }
+      if (!customerDetails.phone.trim()) {
+        toast.error("Customer phone is required");
+        return;
+      }
+    }
+
+    try {
+      setCreatingTrip(true);
+      const res = await fetch("/api/logistics/collection-trips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromType: collectionType,
+          shopId: collectionType === "SHOP" ? selectedShopId : null,
+          customerName: collectionType === "CUSTOMER" ? customerDetails.name : null,
+          customerPhone: collectionType === "CUSTOMER" ? customerDetails.phone : null,
+          customerAddress: collectionType === "CUSTOMER" ? customerDetails.address || null : null,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        toast.success("Collection trip created!");
+        setShowCreateDialog(false);
+        resetCreateForm();
+        // Navigate to the new trip
+        router.push(`/logistics/collect/${data.data.id}`);
+      } else {
+        throw new Error(data.error?.message || "Failed to create collection");
+      }
+    } catch (error) {
+      console.error("Error creating collection:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to create collection");
+    } finally {
+      setCreatingTrip(false);
+    }
+  };
+
+  // Quick shop creation
+  const handleCreateShop = async () => {
+    if (!newShop.name.trim()) {
+      toast.error("Shop name is required");
+      return;
+    }
+
+    try {
+      setCreatingShop(true);
+      const res = await fetch("/api/shops", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newShop.name.trim(),
+          phone: newShop.phone.trim() || null,
+          address: newShop.address.trim() || null,
+          status: "ACTIVE",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        const createdShop: Shop = data.data;
+        setShops((prev) => [...prev, createdShop]);
+        setSelectedShopId(createdShop.id);
+        setShowCreateShop(false);
+        setNewShop({ name: "", phone: "", address: "" });
+        toast.success(`Shop "${createdShop.name}" created`);
+      } else {
+        throw new Error(data.error?.message || "Failed to create shop");
+      }
+    } catch (error) {
+      console.error("Error creating shop:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to create shop");
+    } finally {
+      setCreatingShop(false);
+    }
+  };
+
+  // Reset create form
+  const resetCreateForm = () => {
+    setCollectionType("SHOP");
+    setSelectedShopId(null);
+    setShopSearchQuery("");
+    setCustomerDetails({ name: "", phone: "", address: "" });
+    setShowCreateShop(false);
+    setNewShop({ name: "", phone: "", address: "" });
+  };
+
+  // Get selected shop name
+  const getSelectedShopName = () => {
+    if (!selectedShopId) return "Select a shop...";
+    const shop = shops.find((s) => s.id === selectedShopId);
+    return shop?.name || "Select a shop...";
+  };
+
+  // Filter shops by search query
+  const filteredShops = shops.filter((shop) =>
+    shop.name.toLowerCase().includes(shopSearchQuery.toLowerCase()) ||
+    shop.address?.toLowerCase().includes(shopSearchQuery.toLowerCase()) ||
+    shop.phone?.includes(shopSearchQuery)
+  );
 
   const activeCollections = collectionTrips.filter((t) =>
     ["IN_PROGRESS", "IN_TRANSIT"].includes(t.status)
@@ -230,22 +419,14 @@ export default function MyTripsPage() {
         title="My Trips"
         description="Your active collection and delivery trips"
         actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fetchMyTrips(true)}
-              disabled={refreshing}
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            </Button>
-            {canCreateCollection && (
-              <Button onClick={() => router.push("/logistics/collect")}>
-                <Plus className="h-4 w-4 mr-2" />
-                New Collection
-              </Button>
-            )}
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchMyTrips(true)}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          </Button>
         }
       />
 
@@ -404,17 +585,24 @@ export default function MyTripsPage() {
         </TabsContent>
 
         <TabsContent value="collections" className="space-y-4 mt-4">
+          {/* Create Collection Button */}
+          <Button
+            className="w-full"
+            variant="outline"
+            onClick={() => setShowCreateDialog(true)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Start New Collection
+          </Button>
+
           {activeCollections.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center">
                 <PackageOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground mb-4">No active collection trips</p>
-                {canCreateCollection && (
-                  <Button onClick={() => router.push("/logistics/collect")}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Start New Collection
-                  </Button>
-                )}
+                <p className="text-muted-foreground">No active collection trips</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Click "Start New Collection" above or start a pickup from the Pickups tab
+                </p>
               </CardContent>
             </Card>
           ) : (
@@ -545,6 +733,279 @@ export default function MyTripsPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Create Collection Dialog */}
+      <Dialog
+        open={showCreateDialog}
+        onOpenChange={(open) => {
+          setShowCreateDialog(open);
+          if (!open) resetCreateForm();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start New Collection</DialogTitle>
+            <DialogDescription>
+              Create a direct collection trip to start collecting items
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Collection Type Selection */}
+            <div className="space-y-2">
+              <Label>Collection From</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={collectionType === "SHOP" ? "default" : "outline"}
+                  className="w-full"
+                  onClick={() => setCollectionType("SHOP")}
+                >
+                  <Store className="h-4 w-4 mr-2" />
+                  Shop
+                </Button>
+                <Button
+                  type="button"
+                  variant={collectionType === "CUSTOMER" ? "default" : "outline"}
+                  className="w-full"
+                  onClick={() => setCollectionType("CUSTOMER")}
+                >
+                  <User className="h-4 w-4 mr-2" />
+                  Customer
+                </Button>
+              </div>
+            </div>
+
+            {collectionType === "SHOP" ? (
+              /* Shop Selection */
+              <div className="space-y-2">
+                <Label>Select Shop *</Label>
+                {showCreateShop ? (
+                  /* Inline Shop Creation Form */
+                  <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium flex items-center gap-2">
+                        <PlusCircle className="h-4 w-4" />
+                        Create New Shop
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setShowCreateShop(false);
+                          setNewShop({ name: "", phone: "", address: "" });
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      <Input
+                        placeholder="Shop name *"
+                        value={newShop.name}
+                        onChange={(e) => setNewShop((prev) => ({ ...prev, name: e.target.value }))}
+                        autoFocus
+                      />
+                      <Input
+                        placeholder="Phone (optional)"
+                        value={newShop.phone}
+                        onChange={(e) => setNewShop((prev) => ({ ...prev, phone: e.target.value }))}
+                      />
+                      <Input
+                        placeholder="Address (optional)"
+                        value={newShop.address}
+                        onChange={(e) => setNewShop((prev) => ({ ...prev, address: e.target.value }))}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="w-full"
+                      onClick={handleCreateShop}
+                      disabled={creatingShop || !newShop.name.trim()}
+                    >
+                      {creatingShop ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Check className="h-4 w-4 mr-2" />
+                      )}
+                      Create & Select
+                    </Button>
+                  </div>
+                ) : (
+                  /* Searchable Shop Dropdown */
+                  <Popover open={shopComboOpen} onOpenChange={setShopComboOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={shopComboOpen}
+                        className="w-full justify-between font-normal"
+                      >
+                        <span className="truncate">{getSelectedShopName()}</span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                      <Command shouldFilter={false}>
+                        <CommandInput
+                          placeholder="Search shops..."
+                          value={shopSearchQuery}
+                          onValueChange={setShopSearchQuery}
+                        />
+                        <CommandList>
+                          {shops.length === 0 ? (
+                            <CommandEmpty className="py-4 text-center">
+                              <p className="text-sm text-muted-foreground mb-2">No shops found</p>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setShopComboOpen(false);
+                                  setShowCreateShop(true);
+                                }}
+                              >
+                                <PlusCircle className="h-4 w-4 mr-2" />
+                                Create First Shop
+                              </Button>
+                            </CommandEmpty>
+                          ) : (
+                            <>
+                              <CommandGroup heading="Shops">
+                                {filteredShops.length === 0 ? (
+                                  <div className="py-3 px-2 text-center">
+                                    <p className="text-sm text-muted-foreground mb-2">
+                                      No match for "{shopSearchQuery}"
+                                    </p>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setShopComboOpen(false);
+                                        setShowCreateShop(true);
+                                        setNewShop((prev) => ({ ...prev, name: shopSearchQuery }));
+                                        setShopSearchQuery("");
+                                      }}
+                                    >
+                                      <PlusCircle className="h-4 w-4 mr-2" />
+                                      Create "{shopSearchQuery}"
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  filteredShops.map((shop) => (
+                                    <CommandItem
+                                      key={shop.id}
+                                      value={shop.id.toString()}
+                                      onSelect={() => {
+                                        setSelectedShopId(shop.id);
+                                        setShopComboOpen(false);
+                                        setShopSearchQuery("");
+                                      }}
+                                    >
+                                      <Check
+                                        className={`mr-2 h-4 w-4 ${
+                                          selectedShopId === shop.id ? "opacity-100" : "opacity-0"
+                                        }`}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="font-medium truncate">{shop.name}</div>
+                                        {(shop.address || shop.phone) && (
+                                          <div className="text-xs text-muted-foreground truncate">
+                                            {shop.address || shop.phone}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </CommandItem>
+                                  ))
+                                )}
+                              </CommandGroup>
+                              {filteredShops.length > 0 && (
+                                <>
+                                  <CommandSeparator />
+                                  <CommandGroup>
+                                    <CommandItem
+                                      onSelect={() => {
+                                        setShopComboOpen(false);
+                                        setShowCreateShop(true);
+                                        setShopSearchQuery("");
+                                      }}
+                                      className="text-primary"
+                                    >
+                                      <PlusCircle className="mr-2 h-4 w-4" />
+                                      Create New Shop
+                                    </CommandItem>
+                                  </CommandGroup>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                )}
+              </div>
+            ) : (
+              /* Customer Details */
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label>Customer Name *</Label>
+                  <Input
+                    placeholder="Enter customer name"
+                    value={customerDetails.name}
+                    onChange={(e) =>
+                      setCustomerDetails((prev) => ({ ...prev, name: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone *</Label>
+                  <Input
+                    placeholder="Enter phone number"
+                    value={customerDetails.phone}
+                    onChange={(e) =>
+                      setCustomerDetails((prev) => ({ ...prev, phone: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Address</Label>
+                  <Input
+                    placeholder="Enter address (optional)"
+                    value={customerDetails.address}
+                    onChange={(e) =>
+                      setCustomerDetails((prev) => ({ ...prev, address: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCreateDialog(false);
+                resetCreateForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCollection} disabled={creatingTrip}>
+              {creatingTrip ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Start Collection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -37,7 +37,14 @@
       "Bash(timeout /t 3)",
       "Bash(npx prisma db push:*)",
       "Bash(npx prisma generate:*)",
-      "Bash(cmd /c \"tasklist | findstr node\")"
+      "Bash(cmd /c \"tasklist | findstr node\")",
+      "Bash(cmd /c \"if exist C:\\\\Hype-Projects\\\\CodeLink_ServiceHub\\\\node_modules\\\\.prisma\\\\client\\\\query_engine-windows.dll.node.tmp* del /f /q C:\\\\Hype-Projects\\\\CodeLink_ServiceHub\\\\node_modules\\\\.prisma\\\\client\\\\query_engine-windows.dll.node.tmp*\")",
+      "Bash(git -C \"C:\\\\Hype-Projects\\\\CodeLink_ServiceHub\" diff prisma/schema.prisma)",
+      "Bash(npm run db:seed:*)",
+      "Bash(cmd /c \"taskkill /F /PID 22884\")",
+      "Bash(cmd /c \"if exist .next rmdir /s /q .next\")",
+      "Bash(cmd /c \"rmdir /s /q node_modules\\\\.prisma\")",
+      "Bash(tree:*)"
     ]
   }
 }

@@ -472,12 +472,15 @@ export type EnhancedExecuteWorkflowStepInput = z.infer<typeof enhancedExecuteWor
 // ==================== Collection Trip Schemas (Phase 4) ====================
 
 export const collectionItemSchema = z.object({
+  shopId: z.number().nullable().optional(), // Shop this item is collected from
+  pickupId: z.number().nullable().optional(), // Linked scheduled pickup
   serialNumber: z.string().min(1, "Serial number is required"),
   issueDescription: z.string().min(1, "Issue description is required"),
   warrantyCardId: z.number().nullable().optional(),
   productId: z.number().nullable().optional(),
   customerName: z.string().nullable().optional(),
   customerPhone: z.string().nullable().optional(),
+  customerAddress: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
 

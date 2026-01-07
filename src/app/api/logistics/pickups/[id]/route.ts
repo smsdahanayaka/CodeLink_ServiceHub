@@ -247,7 +247,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
 
     // Record in claim history
-    if (existingPickup.claim) {
+    if (existingPickup.claim && existingPickup.claimId) {
       await prisma.claimHistory.create({
         data: {
           claimId: existingPickup.claimId,
@@ -405,11 +405,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         historyAction = "pickup_started";
         historyNotes = `Pickup ${existingPickup.pickupNumber} started - linked to trip ${tripNumber}`;
 
-        // Update claim location
-        await prisma.warrantyClaim.update({
-          where: { id: existingPickup.claimId },
-          data: { currentLocation: "IN_TRANSIT" },
-        });
+        // Update claim location if claim exists
+        if (existingPickup.claimId) {
+          await prisma.warrantyClaim.update({
+            where: { id: existingPickup.claimId },
+            data: { currentLocation: "IN_TRANSIT" },
+          });
+        }
         break;
 
       case "start_transit":
@@ -456,11 +458,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         historyAction = "pickup_completed";
         historyNotes = `Pickup ${existingPickup.pickupNumber} completed - received by ${completionData.receiverName}`;
 
-        // Update claim location to service center
-        await prisma.warrantyClaim.update({
-          where: { id: existingPickup.claimId },
-          data: { currentLocation: "SERVICE_CENTER" },
-        });
+        // Update claim location to service center if claim exists
+        if (existingPickup.claimId) {
+          await prisma.warrantyClaim.update({
+            where: { id: existingPickup.claimId },
+            data: { currentLocation: "SERVICE_CENTER" },
+          });
+        }
         break;
 
       case "cancel":
@@ -496,14 +500,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         historyAction = "pickup_rejected";
         historyNotes = `Pickup ${existingPickup.pickupNumber} rejected: ${rejectionReason}`;
 
-        // Update claim status to rejected
-        await prisma.warrantyClaim.update({
-          where: { id: existingPickup.claimId },
-          data: {
-            currentStatus: "rejected",
-            resolution: `Rejected: ${rejectionReason}`,
-          },
-        });
+        // Update claim status to rejected if claim exists
+        if (existingPickup.claimId) {
+          await prisma.warrantyClaim.update({
+            where: { id: existingPickup.claimId },
+            data: {
+              currentStatus: "rejected",
+              resolution: `Rejected: ${rejectionReason}`,
+            },
+          });
+        }
         break;
 
       case "accept":
@@ -516,32 +522,35 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           );
         }
 
-        // Get workflow to determine next status
-        const claim = await prisma.warrantyClaim.findUnique({
-          where: { id: existingPickup.claimId },
-          include: {
-            workflow: {
-              include: {
-                steps: { orderBy: { stepOrder: "asc" } },
+        // Only process if pickup has a claim
+        if (existingPickup.claimId) {
+          // Get workflow to determine next status
+          const claim = await prisma.warrantyClaim.findUnique({
+            where: { id: existingPickup.claimId },
+            include: {
+              workflow: {
+                include: {
+                  steps: { orderBy: { stepOrder: "asc" } },
+                },
               },
             },
-          },
-        });
-
-        if (claim) {
-          // Find first processing step (not initial/received)
-          const processingStep = claim.workflow?.steps.find(
-            (s) => !["new", "received", "pending_review"].includes(s.statusName.toLowerCase())
-          );
-
-          await prisma.warrantyClaim.update({
-            where: { id: existingPickup.claimId },
-            data: {
-              currentStatus: processingStep?.statusName || "in_progress",
-              currentStepId: processingStep?.id || claim.currentStepId,
-              receivedAt: new Date(),
-            },
           });
+
+          if (claim) {
+            // Find first processing step (not initial/received)
+            const processingStep = claim.workflow?.steps.find(
+              (s: { statusName: string }) => !["new", "received", "pending_review"].includes(s.statusName.toLowerCase())
+            );
+
+            await prisma.warrantyClaim.update({
+              where: { id: existingPickup.claimId },
+              data: {
+                currentStatus: processingStep?.statusName || "in_progress",
+                currentStepId: processingStep?.id || claim.currentStepId,
+                receivedAt: new Date(),
+              },
+            });
+          }
         }
 
         historyAction = "claim_accepted";
@@ -575,7 +584,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
 
     // Record in claim history
-    if (existingPickup.claim) {
+    if (existingPickup.claim && existingPickup.claimId) {
       await prisma.claimHistory.create({
         data: {
           claimId: existingPickup.claimId,

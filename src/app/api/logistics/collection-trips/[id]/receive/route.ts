@@ -296,7 +296,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
 
       // Update the claim from pickup - already has warranty card, so just update location and acceptance
-      if (pickup.claim) {
+      if (pickup.claim && pickup.claimId) {
         await prisma.warrantyClaim.update({
           where: { id: pickup.claimId },
           data: {

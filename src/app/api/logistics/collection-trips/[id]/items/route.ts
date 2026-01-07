@@ -83,20 +83,56 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // If shopId provided, verify it exists
+    if (validatedData.shopId) {
+      const shop = await prisma.shop.findFirst({
+        where: {
+          id: validatedData.shopId,
+          tenantId: user.tenantId,
+        },
+      });
+      if (!shop) {
+        return errorResponse("Shop not found", "SHOP_NOT_FOUND", 400);
+      }
+    }
+
+    // If pickupId provided, verify it exists and belongs to this trip
+    if (validatedData.pickupId) {
+      const pickup = await prisma.pickup.findFirst({
+        where: {
+          id: validatedData.pickupId,
+          tenantId: user.tenantId,
+          collectionTripId: tripId,
+        },
+      });
+      if (!pickup) {
+        return errorResponse("Pickup not found or not linked to this trip", "PICKUP_NOT_FOUND", 400);
+      }
+    }
+
     // Create item
     const item = await prisma.collectionItem.create({
       data: {
         tripId,
+        shopId: validatedData.shopId || null,
+        pickupId: validatedData.pickupId || null,
         serialNumber: validatedData.serialNumber,
         issueDescription: validatedData.issueDescription,
         warrantyCardId: validatedData.warrantyCardId || null,
         productId: validatedData.productId || null,
         customerName: validatedData.customerName || null,
         customerPhone: validatedData.customerPhone || null,
+        customerAddress: validatedData.customerAddress || null,
         notes: validatedData.notes || null,
         status: "COLLECTED",
       },
       include: {
+        shop: {
+          select: { id: true, name: true, address: true, phone: true },
+        },
+        pickup: {
+          select: { id: true, pickupNumber: true },
+        },
         warrantyCard: {
           select: {
             id: true,

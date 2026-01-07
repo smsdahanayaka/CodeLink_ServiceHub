@@ -139,11 +139,17 @@ export async function GET(request: NextRequest) {
             serialNumber: true,
             issueDescription: true,
             status: true,
+            customerName: true,
+            customerPhone: true,
+            notes: true,
             warrantyCard: {
               select: {
                 id: true,
                 cardNumber: true,
-                product: { select: { name: true } },
+                status: true,
+                warrantyEndDate: true,
+                product: { select: { id: true, name: true, modelNumber: true } },
+                customer: { select: { id: true, name: true, phone: true } },
               },
             },
             product: { select: { id: true, name: true } },

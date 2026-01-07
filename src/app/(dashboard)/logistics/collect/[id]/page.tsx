@@ -18,8 +18,14 @@ import {
   CheckCircle,
   Send,
   AlertCircle,
-  QrCode,
   Barcode,
+  Store,
+  ChevronDown,
+  ChevronRight,
+  Calendar,
+  Check,
+  ChevronsUpDown,
+  PlusCircle,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout";
@@ -43,6 +49,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -64,6 +84,28 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { usePermissions } from "@/lib/hooks";
 
+interface Shop {
+  id: number;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  contactPerson?: string | null;
+}
+
+interface LinkedPickup {
+  id: number;
+  pickupNumber: string;
+  fromType: "SHOP" | "CUSTOMER";
+  status: string;
+  scheduledDate: string | null;
+  scheduledTimeSlot: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  fromShop: Shop | null;
+  route: { id: number; name: string; zone: string | null } | null;
+  _count: { collectionItems: number };
+}
+
 interface CollectionTrip {
   id: number;
   tripNumber: string;
@@ -72,13 +114,7 @@ interface CollectionTrip {
   startedAt: string;
   completedAt: string | null;
   notes: string | null;
-  shop: {
-    id: number;
-    name: string;
-    address: string | null;
-    phone: string | null;
-    contactPerson: string | null;
-  } | null;
+  shop: Shop | null;
   customerName: string | null;
   customerPhone: string | null;
   customerAddress: string | null;
@@ -87,17 +123,23 @@ interface CollectionTrip {
     name: string;
   };
   items: CollectionItem[];
+  pickups: LinkedPickup[];
 }
 
 interface CollectionItem {
   id: number;
+  shopId: number | null;
+  pickupId: number | null;
   serialNumber: string;
   issueDescription: string;
   productId: number | null;
   warrantyCardId: number | null;
   customerName: string | null;
   customerPhone: string | null;
+  customerAddress: string | null;
   status: string;
+  shop: Shop | null;
+  pickup: { id: number; pickupNumber: string } | null;
   product: {
     id: number;
     name: string;
@@ -118,6 +160,13 @@ interface Product {
   modelNumber: string | null;
 }
 
+// Group items by shop for display
+interface ShopGroup {
+  shop: Shop | null;
+  shopId: number | null;
+  items: CollectionItem[];
+}
+
 export default function CollectionTripDetailPage({
   params,
 }: {
@@ -131,16 +180,20 @@ export default function CollectionTripDetailPage({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [expandedShops, setExpandedShops] = useState<Set<string>>(new Set(["unassigned"]));
 
   // Add item dialog state
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addingItem, setAddingItem] = useState(false);
+  const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   const [newItem, setNewItem] = useState({
     serialNumber: "",
     issueDescription: "",
     productId: null as number | null,
     customerName: "",
     customerPhone: "",
+    customerAddress: "",
   });
 
   // Confirm dialogs
@@ -148,11 +201,25 @@ export default function CollectionTripDetailPage({
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState<number | null>(null);
 
+  // Shop selection combobox state
+  const [shopComboOpen, setShopComboOpen] = useState(false);
+  const [shopSearchQuery, setShopSearchQuery] = useState("");
+
+  // Quick shop creation state
+  const [showCreateShop, setShowCreateShop] = useState(false);
+  const [creatingShop, setCreatingShop] = useState(false);
+  const [newShop, setNewShop] = useState({
+    name: "",
+    phone: "",
+    address: "",
+  });
+
   const canManage = hasPermission("logistics.create_collection") || hasPermission("logistics.collect");
 
   useEffect(() => {
     fetchTrip();
     fetchProducts();
+    fetchShops();
   }, [id]);
 
   const fetchTrip = async () => {
@@ -163,6 +230,12 @@ export default function CollectionTripDetailPage({
 
       if (data.success) {
         setTrip(data.data);
+        // Expand all shops with items by default
+        const shopsWithItems = new Set<string>(["unassigned"]);
+        data.data.items.forEach((item: CollectionItem) => {
+          if (item.shopId) shopsWithItems.add(item.shopId.toString());
+        });
+        setExpandedShops(shopsWithItems);
       } else {
         toast.error(data.error?.message || "Failed to load trip");
       }
@@ -186,6 +259,57 @@ export default function CollectionTripDetailPage({
     }
   };
 
+  const fetchShops = async () => {
+    try {
+      const res = await fetch("/api/shops?limit=200&status=ACTIVE");
+      const data = await res.json();
+      if (data.success) {
+        setShops(data.data);
+      }
+    } catch (error) {
+      console.error("Error fetching shops:", error);
+    }
+  };
+
+  // Group items by shop
+  const groupItemsByShop = (): ShopGroup[] => {
+    if (!trip) return [];
+
+    const groups: Map<string, ShopGroup> = new Map();
+
+    trip.items.forEach((item) => {
+      const key = item.shopId?.toString() || "unassigned";
+      if (!groups.has(key)) {
+        groups.set(key, {
+          shop: item.shop,
+          shopId: item.shopId,
+          items: [],
+        });
+      }
+      groups.get(key)!.items.push(item);
+    });
+
+    // Sort: shops first (alphabetically), then unassigned
+    return Array.from(groups.values()).sort((a, b) => {
+      if (!a.shop && b.shop) return 1;
+      if (a.shop && !b.shop) return -1;
+      if (a.shop && b.shop) return a.shop.name.localeCompare(b.shop.name);
+      return 0;
+    });
+  };
+
+  const toggleShopExpand = (shopKey: string) => {
+    setExpandedShops((prev) => {
+      const next = new Set(prev);
+      if (next.has(shopKey)) {
+        next.delete(shopKey);
+      } else {
+        next.add(shopKey);
+      }
+      return next;
+    });
+  };
+
   const handleAddItem = async () => {
     if (!newItem.serialNumber.trim()) {
       toast.error("Please enter the device serial number");
@@ -204,11 +328,13 @@ export default function CollectionTripDetailPage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          shopId: selectedShopId,
           serialNumber: newItem.serialNumber,
           issueDescription: newItem.issueDescription,
           productId: newItem.productId,
           customerName: newItem.customerName || null,
           customerPhone: newItem.customerPhone || null,
+          customerAddress: newItem.customerAddress || null,
         }),
       });
 
@@ -218,13 +344,19 @@ export default function CollectionTripDetailPage({
         setTrip((prev) =>
           prev ? { ...prev, items: [...prev.items, data.data] } : prev
         );
+        // Expand the shop group
+        if (selectedShopId) {
+          setExpandedShops((prev) => new Set([...prev, selectedShopId.toString()]));
+        }
         setShowAddDialog(false);
+        setSelectedShopId(null);
         setNewItem({
           serialNumber: "",
           issueDescription: "",
           productId: null,
           customerName: "",
           customerPhone: "",
+          customerAddress: "",
         });
         toast.success("Item has been added to the collection");
       } else {
@@ -236,6 +368,12 @@ export default function CollectionTripDetailPage({
     } finally {
       setAddingItem(false);
     }
+  };
+
+  // Open add dialog with pre-selected shop
+  const openAddDialogForShop = (shopId: number | null) => {
+    setSelectedShopId(shopId);
+    setShowAddDialog(true);
   };
 
   const handleDeleteItem = async () => {
@@ -268,6 +406,61 @@ export default function CollectionTripDetailPage({
       setDeleteItemId(null);
     }
   };
+
+  // Quick shop creation
+  const handleCreateShop = async () => {
+    if (!newShop.name.trim()) {
+      toast.error("Shop name is required");
+      return;
+    }
+
+    try {
+      setCreatingShop(true);
+      const res = await fetch("/api/shops", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newShop.name.trim(),
+          phone: newShop.phone.trim() || null,
+          address: newShop.address.trim() || null,
+          status: "ACTIVE",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        // Add the new shop to the list and select it
+        const createdShop: Shop = data.data;
+        setShops((prev) => [...prev, createdShop]);
+        setSelectedShopId(createdShop.id);
+        setShowCreateShop(false);
+        setNewShop({ name: "", phone: "", address: "" });
+        toast.success(`Shop "${createdShop.name}" created and selected`);
+      } else {
+        throw new Error(data.error?.message || "Failed to create shop");
+      }
+    } catch (error) {
+      console.error("Error creating shop:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to create shop");
+    } finally {
+      setCreatingShop(false);
+    }
+  };
+
+  // Get selected shop name for display
+  const getSelectedShopName = () => {
+    if (!selectedShopId) return "No Shop / Direct Customer";
+    const shop = shops.find((s) => s.id === selectedShopId);
+    return shop?.name || "Select shop...";
+  };
+
+  // Filter shops by search query
+  const filteredShops = shops.filter((shop) =>
+    shop.name.toLowerCase().includes(shopSearchQuery.toLowerCase()) ||
+    shop.address?.toLowerCase().includes(shopSearchQuery.toLowerCase()) ||
+    shop.phone?.includes(shopSearchQuery)
+  );
 
   const handleTripAction = async (action: string) => {
     try {
@@ -429,13 +622,58 @@ export default function CollectionTripDetailPage({
         </CardContent>
       </Card>
 
-      {/* Items List */}
+      {/* Linked Pickups */}
+      {trip.pickups && trip.pickups.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              Scheduled Pickups ({trip.pickups.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {trip.pickups.map((pickup) => (
+                <div
+                  key={pickup.id}
+                  className="p-3 border rounded-lg flex items-center justify-between"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm">{pickup.pickupNumber}</span>
+                      <Badge variant={pickup._count.collectionItems > 0 ? "default" : "secondary"}>
+                        {pickup._count.collectionItems > 0 ? `${pickup._count.collectionItems} items` : "No items yet"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {pickup.fromShop?.name || pickup.customerName}
+                      {pickup.route && ` • ${pickup.route.name}`}
+                    </p>
+                  </div>
+                  {isActive && canManage && pickup._count.collectionItems === 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openAddDialogForShop(pickup.fromShop?.id || null)}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Items List - Grouped by Shop */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
-              Items ({trip.items.length})
+              Collected Items ({trip.items.length})
             </CardTitle>
             {isActive && canManage && (
               <Button size="sm" onClick={() => setShowAddDialog(true)}>
@@ -458,46 +696,109 @@ export default function CollectionTripDetailPage({
               )}
             </div>
           ) : (
-            <div className="space-y-3">
-              {trip.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-3 border rounded-lg flex items-start justify-between"
-                >
-                  <div className="space-y-1 flex-1">
-                    <div className="flex items-center gap-2">
-                      <Barcode className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-mono font-medium">{item.serialNumber}</span>
+            <div className="space-y-4">
+              {groupItemsByShop().map((group) => {
+                const shopKey = group.shopId?.toString() || "unassigned";
+                const isExpanded = expandedShops.has(shopKey);
+
+                return (
+                  <div key={shopKey} className="border rounded-lg overflow-hidden">
+                    {/* Shop Header */}
+                    <div
+                      className="p-3 bg-muted/50 flex items-center justify-between cursor-pointer"
+                      onClick={() => toggleShopExpand(shopKey)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                        <Store className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">
+                          {group.shop?.name || "No Shop Assigned"}
+                        </span>
+                        <Badge variant="secondary" className="text-xs">
+                          {group.items.length} items
+                        </Badge>
+                      </div>
+                      {isActive && canManage && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openAddDialogForShop(group.shopId);
+                          }}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
-                    {item.product && (
-                      <p className="text-sm">{item.product.name}</p>
-                    )}
-                    {item.warrantyCard && (
-                      <Badge variant="outline" className="text-xs">
-                        WC: {item.warrantyCard.cardNumber}
-                      </Badge>
-                    )}
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {item.issueDescription}
-                    </p>
-                    {(item.customerName || item.warrantyCard?.customer) && (
-                      <p className="text-xs text-muted-foreground">
-                        Customer: {item.customerName || item.warrantyCard?.customer?.name}
-                      </p>
+
+                    {/* Shop Items */}
+                    {isExpanded && (
+                      <div className="p-3 space-y-3">
+                        {group.shop && (
+                          <div className="text-sm text-muted-foreground pb-2 border-b">
+                            {group.shop.address && (
+                              <div className="flex items-center gap-2">
+                                <MapPin className="h-3 w-3" />
+                                <span>{group.shop.address}</span>
+                              </div>
+                            )}
+                            {group.shop.phone && (
+                              <a href={`tel:${group.shop.phone}`} className="flex items-center gap-2 text-primary">
+                                <Phone className="h-3 w-3" />
+                                <span>{group.shop.phone}</span>
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {group.items.map((item) => (
+                          <div
+                            key={item.id}
+                            className="p-3 border rounded-lg flex items-start justify-between"
+                          >
+                            <div className="space-y-1 flex-1">
+                              <div className="flex items-center gap-2">
+                                <Barcode className="h-4 w-4 text-muted-foreground" />
+                                <span className="font-mono font-medium">{item.serialNumber}</span>
+                              </div>
+                              {item.product && (
+                                <p className="text-sm">{item.product.name}</p>
+                              )}
+                              {item.warrantyCard && (
+                                <Badge variant="outline" className="text-xs">
+                                  WC: {item.warrantyCard.cardNumber}
+                                </Badge>
+                              )}
+                              <p className="text-sm text-muted-foreground line-clamp-2">
+                                {item.issueDescription}
+                              </p>
+                              {(item.customerName || item.warrantyCard?.customer) && (
+                                <p className="text-xs text-muted-foreground">
+                                  Customer: {item.customerName || item.warrantyCard?.customer?.name}
+                                </p>
+                              )}
+                            </div>
+                            {isActive && canManage && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive"
+                                onClick={() => setDeleteItemId(item.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  {isActive && canManage && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive"
-                      onClick={() => setDeleteItemId(item.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -532,8 +833,16 @@ export default function CollectionTripDetailPage({
       )}
 
       {/* Add Item Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-md">
+      <Dialog open={showAddDialog} onOpenChange={(open) => {
+        setShowAddDialog(open);
+        if (!open) {
+          setSelectedShopId(null);
+          setShowCreateShop(false);
+          setNewShop({ name: "", phone: "", address: "" });
+          setShopSearchQuery("");
+        }
+      }}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Item</DialogTitle>
             <DialogDescription>
@@ -541,6 +850,197 @@ export default function CollectionTripDetailPage({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {/* Shop Selection with Search and Create */}
+            <div className="space-y-2">
+              <Label>Shop</Label>
+              {showCreateShop ? (
+                /* Inline Shop Creation Form */
+                <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium flex items-center gap-2">
+                      <PlusCircle className="h-4 w-4" />
+                      Create New Shop
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setShowCreateShop(false);
+                        setNewShop({ name: "", phone: "", address: "" });
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Shop name *"
+                      value={newShop.name}
+                      onChange={(e) => setNewShop((prev) => ({ ...prev, name: e.target.value }))}
+                      autoFocus
+                    />
+                    <Input
+                      placeholder="Phone (optional)"
+                      value={newShop.phone}
+                      onChange={(e) => setNewShop((prev) => ({ ...prev, phone: e.target.value }))}
+                    />
+                    <Input
+                      placeholder="Address (optional)"
+                      value={newShop.address}
+                      onChange={(e) => setNewShop((prev) => ({ ...prev, address: e.target.value }))}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleCreateShop}
+                    disabled={creatingShop || !newShop.name.trim()}
+                  >
+                    {creatingShop ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Check className="h-4 w-4 mr-2" />
+                    )}
+                    Create & Select
+                  </Button>
+                </div>
+              ) : (
+                /* Searchable Shop Dropdown */
+                <Popover open={shopComboOpen} onOpenChange={setShopComboOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={shopComboOpen}
+                      className="w-full justify-between font-normal"
+                    >
+                      <span className="truncate">{getSelectedShopName()}</span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command shouldFilter={false}>
+                      <CommandInput
+                        placeholder="Search shops..."
+                        value={shopSearchQuery}
+                        onValueChange={setShopSearchQuery}
+                      />
+                      <CommandList>
+                        {shops.length === 0 ? (
+                          <CommandEmpty className="py-4 text-center">
+                            <p className="text-sm text-muted-foreground mb-2">No shops found</p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setShopComboOpen(false);
+                                setShowCreateShop(true);
+                              }}
+                            >
+                              <PlusCircle className="h-4 w-4 mr-2" />
+                              Create First Shop
+                            </Button>
+                          </CommandEmpty>
+                        ) : (
+                          <>
+                            <CommandGroup>
+                              {/* No Shop Option */}
+                              <CommandItem
+                                value="none"
+                                onSelect={() => {
+                                  setSelectedShopId(null);
+                                  setShopComboOpen(false);
+                                  setShopSearchQuery("");
+                                }}
+                              >
+                                <Check
+                                  className={`mr-2 h-4 w-4 ${
+                                    selectedShopId === null ? "opacity-100" : "opacity-0"
+                                  }`}
+                                />
+                                <span className="text-muted-foreground">No Shop / Direct Customer</span>
+                              </CommandItem>
+                            </CommandGroup>
+                            <CommandSeparator />
+                            <CommandGroup heading="Shops">
+                              {filteredShops.length === 0 ? (
+                                <div className="py-3 px-2 text-center">
+                                  <p className="text-sm text-muted-foreground mb-2">
+                                    No match for "{shopSearchQuery}"
+                                  </p>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setShopComboOpen(false);
+                                      setShowCreateShop(true);
+                                      setNewShop((prev) => ({ ...prev, name: shopSearchQuery }));
+                                      setShopSearchQuery("");
+                                    }}
+                                  >
+                                    <PlusCircle className="h-4 w-4 mr-2" />
+                                    Create "{shopSearchQuery}"
+                                  </Button>
+                                </div>
+                              ) : (
+                                filteredShops.map((shop) => (
+                                  <CommandItem
+                                    key={shop.id}
+                                    value={shop.id.toString()}
+                                    onSelect={() => {
+                                      setSelectedShopId(shop.id);
+                                      setShopComboOpen(false);
+                                      setShopSearchQuery("");
+                                    }}
+                                  >
+                                    <Check
+                                      className={`mr-2 h-4 w-4 ${
+                                        selectedShopId === shop.id ? "opacity-100" : "opacity-0"
+                                      }`}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium truncate">{shop.name}</div>
+                                      {(shop.address || shop.phone) && (
+                                        <div className="text-xs text-muted-foreground truncate">
+                                          {shop.address || shop.phone}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </CommandItem>
+                                ))
+                              )}
+                            </CommandGroup>
+                            {filteredShops.length > 0 && (
+                              <>
+                                <CommandSeparator />
+                                <CommandGroup>
+                                  <CommandItem
+                                    onSelect={() => {
+                                      setShopComboOpen(false);
+                                      setShowCreateShop(true);
+                                      setShopSearchQuery("");
+                                    }}
+                                    className="text-primary"
+                                  >
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Create New Shop
+                                  </CommandItem>
+                                </CommandGroup>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label>Serial Number *</Label>
               <Input
@@ -587,27 +1087,36 @@ export default function CollectionTripDetailPage({
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Customer Name</Label>
-                <Input
-                  value={newItem.customerName}
-                  onChange={(e) =>
-                    setNewItem((prev) => ({ ...prev, customerName: e.target.value }))
-                  }
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Customer Phone</Label>
-                <Input
-                  value={newItem.customerPhone}
-                  onChange={(e) =>
-                    setNewItem((prev) => ({ ...prev, customerPhone: e.target.value }))
-                  }
-                  placeholder="Optional"
-                />
-              </div>
+            <div className="space-y-2">
+              <Label>Customer Name</Label>
+              <Input
+                value={newItem.customerName}
+                onChange={(e) =>
+                  setNewItem((prev) => ({ ...prev, customerName: e.target.value }))
+                }
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Customer Phone</Label>
+              <Input
+                value={newItem.customerPhone}
+                onChange={(e) =>
+                  setNewItem((prev) => ({ ...prev, customerPhone: e.target.value }))
+                }
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Customer Address</Label>
+              <Textarea
+                value={newItem.customerAddress}
+                onChange={(e) =>
+                  setNewItem((prev) => ({ ...prev, customerAddress: e.target.value }))
+                }
+                placeholder="Optional"
+                rows={2}
+              />
             </div>
           </div>
           <DialogFooter>

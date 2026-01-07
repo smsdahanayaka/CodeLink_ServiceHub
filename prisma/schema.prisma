@@ -19,19 +19,19 @@ datasource db {
 
 // Subscription Plans for SaaS
 model Plan {
-  id               Int      @id @default(autoincrement())
-  name             String   @db.VarChar(100)
-  description      String?  @db.Text
-  priceMonthly     Decimal  @default(0) @db.Decimal(10, 2)
-  priceYearly      Decimal  @default(0) @db.Decimal(10, 2)
-  maxUsers         Int?
+  id                Int      @id @default(autoincrement())
+  name              String   @db.VarChar(100)
+  description       String?  @db.Text
+  priceMonthly      Decimal  @default(0) @db.Decimal(10, 2)
+  priceYearly       Decimal  @default(0) @db.Decimal(10, 2)
+  maxUsers          Int?
   maxClaimsPerMonth Int?
-  maxWorkflows     Int?
-  maxSmsPerMonth   Int?
-  features         Json?
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  maxWorkflows      Int?
+  maxSmsPerMonth    Int?
+  features          Json?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   // Relations
   tenants Tenant[]
@@ -41,24 +41,24 @@ model Plan {
 
 // Tenants (Companies using the platform)
 model Tenant {
-  id           Int      @id @default(autoincrement())
-  uuid         String   @unique @db.Char(36)
-  name         String   @db.VarChar(255)
-  subdomain    String   @unique @db.VarChar(100)
-  domain       String?  @db.VarChar(255)
-  logoUrl      String?  @db.VarChar(500)
+  id           Int          @id @default(autoincrement())
+  uuid         String       @unique @db.Char(36)
+  name         String       @db.VarChar(255)
+  subdomain    String       @unique @db.VarChar(100)
+  domain       String?      @db.VarChar(255)
+  logoUrl      String?      @db.VarChar(500)
   planId       Int?
   settings     Json?
-  contactEmail String?  @db.VarChar(255)
-  contactPhone String?  @db.VarChar(50)
-  address      String?  @db.Text
+  contactEmail String?      @db.VarChar(255)
+  contactPhone String?      @db.VarChar(50)
+  address      String?      @db.Text
   status       TenantStatus @default(TRIAL)
   trialEndsAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   // Relations
-  plan                  Plan?                @relation(fields: [planId], references: [id])
+  plan                  Plan?                  @relation(fields: [planId], references: [id])
   roles                 Role[]
   users                 User[]
   productCategories     ProductCategory[]
@@ -104,7 +104,7 @@ model Role {
   tenantId    Int
   name        String   @db.VarChar(100)
   description String?  @db.Text
-  permissions Json     // Array of permission strings
+  permissions Json // Array of permission strings
   isSystem    Boolean  @default(false) // System roles can't be deleted
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -120,56 +120,56 @@ model Role {
 
 // Users
 model User {
-  id              Int      @id @default(autoincrement())
-  uuid            String   @unique @db.Char(36)
+  id              Int        @id @default(autoincrement())
+  uuid            String     @unique @db.Char(36)
   tenantId        Int
   roleId          Int
-  email           String   @db.VarChar(255)
-  passwordHash    String   @db.VarChar(255)
-  firstName       String?  @db.VarChar(100)
-  lastName        String?  @db.VarChar(100)
-  phone           String?  @db.VarChar(50)
-  avatarUrl       String?  @db.VarChar(500)
+  email           String     @db.VarChar(255)
+  passwordHash    String     @db.VarChar(255)
+  firstName       String?    @db.VarChar(100)
+  lastName        String?    @db.VarChar(100)
+  phone           String?    @db.VarChar(50)
+  avatarUrl       String?    @db.VarChar(500)
   emailVerifiedAt DateTime?
   lastLoginAt     DateTime?
   status          UserStatus @default(ACTIVE)
   preferences     Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   // Relations
-  tenant               Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  role                 Role            @relation(fields: [roleId], references: [id])
-  sessions             UserSession[]
-  createdWarrantyCards WarrantyCard[]  @relation("CreatedByUser")
-  createdClaims        WarrantyClaim[] @relation("CreatedByUser")
-  assignedClaims       WarrantyClaim[] @relation("AssignedToUser")
-  claimHistory         ClaimHistory[]
-  createdWorkflows     Workflow[]
-  autoAssignSteps      WorkflowStep[]
-  collector            Collector?
-  notifications        Notification[]
-  auditLogs            AuditLog[]
-  fileUploads          FileUpload[]
+  tenant                  Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role                    Role                   @relation(fields: [roleId], references: [id])
+  sessions                UserSession[]
+  createdWarrantyCards    WarrantyCard[]         @relation("CreatedByUser")
+  createdClaims           WarrantyClaim[]        @relation("CreatedByUser")
+  assignedClaims          WarrantyClaim[]        @relation("AssignedToUser")
+  claimHistory            ClaimHistory[]
+  createdWorkflows        Workflow[]
+  autoAssignSteps         WorkflowStep[]
+  collector               Collector?
+  notifications           Notification[]
+  auditLogs               AuditLog[]
+  fileUploads             FileUpload[]
   // Step assignment relations
-  stepAssignments      ClaimStepAssignment[] @relation("StepAssignedUser")
-  stepAssignmentsMade  ClaimStepAssignment[] @relation("StepAssignedBy")
+  stepAssignments         ClaimStepAssignment[]  @relation("StepAssignedUser")
+  stepAssignmentsMade     ClaimStepAssignment[]  @relation("StepAssignedBy")
   // Sub-task relations
-  assignedSubTasks     ClaimSubTask[]  @relation("SubTaskAssignee")
-  completedSubTasks    ClaimSubTask[]  @relation("SubTaskCompletedBy")
-  createdSubTasks      ClaimSubTask[]  @relation("SubTaskCreatedBy")
+  assignedSubTasks        ClaimSubTask[]         @relation("SubTaskAssignee")
+  completedSubTasks       ClaimSubTask[]         @relation("SubTaskCompletedBy")
+  createdSubTasks         ClaimSubTask[]         @relation("SubTaskCreatedBy")
   // Trip relations
-  receivedCollectionTrips CollectionTrip[] @relation("CollectionTripReceiver")
-  createdDeliveryTrips    DeliveryTrip[]   @relation("DeliveryTripCreator")
+  receivedCollectionTrips CollectionTrip[]       @relation("CollectionTripReceiver")
+  createdDeliveryTrips    DeliveryTrip[]         @relation("DeliveryTripCreator")
   // Phase 5 relations
   inventoryTransactions   InventoryTransaction[]
   createdQuotations       ClaimQuotation[]
   createdInvoices         ClaimInvoice[]
-  claimPartsIssued        ClaimPart[]      @relation("ClaimPartIssuedBy")
-  claimPartsCreated       ClaimPart[]      @relation("ClaimPartCreatedBy")
+  claimPartsIssued        ClaimPart[]            @relation("ClaimPartIssuedBy")
+  claimPartsCreated       ClaimPart[]            @relation("ClaimPartCreatedBy")
   claimServiceCharges     ClaimServiceCharge[]
-  warrantyOverrides       WarrantyClaim[]  @relation("WarrantyOverrideBy")
-  acceptedClaims          WarrantyClaim[]  @relation("ClaimAcceptedBy")
+  warrantyOverrides       WarrantyClaim[]        @relation("WarrantyOverrideBy")
+  acceptedClaims          WarrantyClaim[]        @relation("ClaimAcceptedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -250,25 +250,25 @@ model Product {
 
 // Shops/Dealers
 model Shop {
-  id            Int      @id @default(autoincrement())
+  id            Int        @id @default(autoincrement())
   tenantId      Int
-  code          String?  @db.VarChar(50)
-  name          String   @db.VarChar(255)
-  email         String?  @db.VarChar(255)
-  phone         String?  @db.VarChar(50)
-  address       String?  @db.Text
-  city          String?  @db.VarChar(100)
-  state         String?  @db.VarChar(100)
-  postalCode    String?  @db.VarChar(20)
-  country       String   @default("India") @db.VarChar(100)
-  contactPerson String?  @db.VarChar(255)
-  contactPhone  String?  @db.VarChar(50)
-  gstNumber     String?  @db.VarChar(50)
+  code          String?    @db.VarChar(50)
+  name          String     @db.VarChar(255)
+  email         String?    @db.VarChar(255)
+  phone         String?    @db.VarChar(50)
+  address       String?    @db.Text
+  city          String?    @db.VarChar(100)
+  state         String?    @db.VarChar(100)
+  postalCode    String?    @db.VarChar(20)
+  country       String     @default("India") @db.VarChar(100)
+  contactPerson String?    @db.VarChar(255)
+  contactPhone  String?    @db.VarChar(50)
+  gstNumber     String?    @db.VarChar(50)
   status        ShopStatus @default(ACTIVE)
-  isVerified    Boolean  @default(false) // false = pending admin verification
-  notes         String?  @db.Text
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isVerified    Boolean    @default(false) // false = pending admin verification
+  notes         String?    @db.Text
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   // Relations
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -277,6 +277,7 @@ model Shop {
   pickups         Pickup[]
   deliveries      Delivery[]
   collectionTrips CollectionTrip[]
+  collectionItems CollectionItem[]
   deliveryTrips   DeliveryTrip[]
 
   @@index([isVerified])
@@ -321,25 +322,25 @@ model Customer {
 
 // Warranty Cards
 model WarrantyCard {
-  id                    Int      @id @default(autoincrement())
-  tenantId              Int
-  cardNumber            String   @db.VarChar(100)
-  productId             Int
-  customerId            Int?     // Optional - shops/dealers are primary contact
-  shopId                Int      // Required - shop must exist (can be unverified)
-  serialNumber          String   @db.VarChar(100)
-  purchaseDate          DateTime @db.Date
-  warrantyStartDate     DateTime @db.Date
-  warrantyEndDate       DateTime @db.Date
-  invoiceNumber         String?  @db.VarChar(100)
-  invoiceAmount         Decimal? @db.Decimal(12, 2)
-  extendedWarrantyMonths Int     @default(0)
-  status                WarrantyCardStatus @default(ACTIVE)
-  notes                 String?  @db.Text
-  attachments           Json?
-  createdBy             Int?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                     Int                @id @default(autoincrement())
+  tenantId               Int
+  cardNumber             String             @db.VarChar(100)
+  productId              Int
+  customerId             Int? // Optional - shops/dealers are primary contact
+  shopId                 Int // Required - shop must exist (can be unverified)
+  serialNumber           String             @db.VarChar(100)
+  purchaseDate           DateTime           @db.Date
+  warrantyStartDate      DateTime           @db.Date
+  warrantyEndDate        DateTime           @db.Date
+  invoiceNumber          String?            @db.VarChar(100)
+  invoiceAmount          Decimal?           @db.Decimal(12, 2)
+  extendedWarrantyMonths Int                @default(0)
+  status                 WarrantyCardStatus @default(ACTIVE)
+  notes                  String?            @db.Text
+  attachments            Json?
+  createdBy              Int?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   // Relations
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -366,69 +367,69 @@ enum WarrantyCardStatus {
 
 // Warranty Claims
 model WarrantyClaim {
-  id               Int      @id @default(autoincrement())
-  tenantId         Int
-  claimNumber      String   @db.VarChar(100)
-  warrantyCardId   Int
-  workflowId       Int?
-  currentStepId    Int?
+  id                   Int           @id @default(autoincrement())
+  tenantId             Int
+  claimNumber          String        @db.VarChar(100)
+  warrantyCardId       Int
+  workflowId           Int?
+  currentStepId        Int?
   currentStepStartedAt DateTime?
-  issueDescription String   @db.Text
-  issueCategory    String?  @db.VarChar(100)
-  reportedBy       ReportedBy @default(SHOP)
-  priority         ClaimPriority @default(MEDIUM)
-  currentStatus    String   @default("new") @db.VarChar(100)
-  currentLocation  ClaimLocation @default(SHOP)
-  assignedTo       Int?
-  diagnosis        String?  @db.Text
-  resolution       String?  @db.Text
-  partsUsed        Json?
-  repairCost       Decimal  @default(0) @db.Decimal(12, 2)
-  isWarrantyVoid   Boolean  @default(false)
-  voidReason       String?  @db.Text
+  issueDescription     String        @db.Text
+  issueCategory        String?       @db.VarChar(100)
+  reportedBy           ReportedBy    @default(SHOP)
+  priority             ClaimPriority @default(MEDIUM)
+  currentStatus        String        @default("new") @db.VarChar(100)
+  currentLocation      ClaimLocation @default(SHOP)
+  assignedTo           Int?
+  diagnosis            String?       @db.Text
+  resolution           String?       @db.Text
+  partsUsed            Json?
+  repairCost           Decimal       @default(0) @db.Decimal(12, 2)
+  isWarrantyVoid       Boolean       @default(false)
+  voidReason           String?       @db.Text
   // Due date tracking
-  dueDate          DateTime?
-  dueDateSource    String?  @db.VarChar(50) // "sla", "manual", "priority"
-  receivedAt       DateTime?
-  resolvedAt       DateTime?
-  createdBy        Int?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  dueDate              DateTime?
+  dueDateSource        String?       @db.VarChar(50) // "sla", "manual", "priority"
+  receivedAt           DateTime?
+  resolvedAt           DateTime?
+  createdBy            Int?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   // Phase 5: Warranty validation fields
-  isUnderWarranty       Boolean   @default(true)
-  warrantyOverrideBy    Int?
-  warrantyOverrideAt    DateTime?
-  warrantyOverrideReason String?  @db.Text
-  requiresQuotation     Boolean   @default(false)
-  quotationApprovedAt   DateTime?
+  isUnderWarranty        Boolean   @default(true)
+  warrantyOverrideBy     Int?
+  warrantyOverrideAt     DateTime?
+  warrantyOverrideReason String?   @db.Text
+  requiresQuotation      Boolean   @default(false)
+  quotationApprovedAt    DateTime?
 
   // Acceptance workflow (for items from collection trips)
-  acceptanceStatus      ClaimAcceptanceStatus @default(ACCEPTED)
-  acceptedAt            DateTime?
-  acceptedBy            Int?
+  acceptanceStatus ClaimAcceptanceStatus @default(ACCEPTED)
+  acceptedAt       DateTime?
+  acceptedBy       Int?
 
   // Relations
-  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  warrantyCard    WarrantyCard   @relation(fields: [warrantyCardId], references: [id])
-  workflow        Workflow?      @relation(fields: [workflowId], references: [id])
-  currentStep     WorkflowStep?  @relation(fields: [currentStepId], references: [id])
-  assignedUser    User?          @relation("AssignedToUser", fields: [assignedTo], references: [id])
-  createdByUser   User?          @relation("CreatedByUser", fields: [createdBy], references: [id])
-  warrantyOverrideUser User?     @relation("WarrantyOverrideBy", fields: [warrantyOverrideBy], references: [id])
-  acceptedByUser  User?          @relation("ClaimAcceptedBy", fields: [acceptedBy], references: [id])
-  claimHistory    ClaimHistory[]
-  pickups         Pickup[]
-  deliveries      Delivery[]
-  stepAssignments ClaimStepAssignment[]
-  subTasks        ClaimSubTask[]
-  collectionItem  CollectionItem?
-  deliveryItems   DeliveryItem[]
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warrantyCard         WarrantyCard          @relation(fields: [warrantyCardId], references: [id])
+  workflow             Workflow?             @relation(fields: [workflowId], references: [id])
+  currentStep          WorkflowStep?         @relation(fields: [currentStepId], references: [id])
+  assignedUser         User?                 @relation("AssignedToUser", fields: [assignedTo], references: [id])
+  createdByUser        User?                 @relation("CreatedByUser", fields: [createdBy], references: [id])
+  warrantyOverrideUser User?                 @relation("WarrantyOverrideBy", fields: [warrantyOverrideBy], references: [id])
+  acceptedByUser       User?                 @relation("ClaimAcceptedBy", fields: [acceptedBy], references: [id])
+  claimHistory         ClaimHistory[]
+  pickups              Pickup[]
+  deliveries           Delivery[]
+  stepAssignments      ClaimStepAssignment[]
+  subTasks             ClaimSubTask[]
+  collectionItem       CollectionItem?
+  deliveryItems        DeliveryItem[]
   // Phase 5 relations
-  quotations      ClaimQuotation[]
-  invoice         ClaimInvoice?
-  parts           ClaimPart[]
-  serviceCharges  ClaimServiceCharge[]
+  quotations           ClaimQuotation[]
+  invoice              ClaimInvoice?
+  parts                ClaimPart[]
+  serviceCharges       ClaimServiceCharge[]
 
   @@unique([tenantId, claimNumber])
   @@index([tenantId, currentStatus])
@@ -457,22 +458,22 @@ enum ClaimLocation {
 }
 
 enum ClaimAcceptanceStatus {
-  PENDING       // Just received from collection, needs review
-  ACCEPTED      // Accepted, ready for workflow
-  REJECTED      // Rejected (to be returned)
+  PENDING // Just received from collection, needs review
+  ACCEPTED // Accepted, ready for workflow
+  REJECTED // Rejected (to be returned)
 }
 
 // Claim Step Assignments (Per-claim user mapping to workflow steps)
 model ClaimStepAssignment {
-  id              Int      @id @default(autoincrement())
-  claimId         Int
-  workflowStepId  Int
-  assignedUserId  Int
-  assignedBy      Int
-  notes           String?  @db.Text
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  claimId        Int
+  workflowStepId Int
+  assignedUserId Int
+  assignedBy     Int
+  notes          String?  @db.Text
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Relations
   claim          WarrantyClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
@@ -488,21 +489,21 @@ model ClaimStepAssignment {
 
 // Claim Sub-Tasks (Tasks within a workflow step)
 model ClaimSubTask {
-  id              Int             @id @default(autoincrement())
-  claimId         Int
-  workflowStepId  Int
-  title           String          @db.VarChar(255)
-  description     String?         @db.Text
-  assignedTo      Int?
-  status          SubTaskStatus   @default(PENDING)
-  priority        SubTaskPriority @default(MEDIUM)
-  dueDate         DateTime?
-  completedAt     DateTime?
-  completedBy     Int?
-  createdBy       Int
-  sortOrder       Int             @default(0)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id             Int             @id @default(autoincrement())
+  claimId        Int
+  workflowStepId Int
+  title          String          @db.VarChar(255)
+  description    String?         @db.Text
+  assignedTo     Int?
+  status         SubTaskStatus   @default(PENDING)
+  priority       SubTaskPriority @default(MEDIUM)
+  dueDate        DateTime?
+  completedAt    DateTime?
+  completedBy    Int?
+  createdBy      Int
+  sortOrder      Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   // Relations
   claim           WarrantyClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
@@ -560,18 +561,18 @@ model ClaimHistory {
 
 // Workflows (Process Templates)
 model Workflow {
-  id               Int      @id @default(autoincrement())
-  tenantId         Int
-  name             String   @db.VarChar(255)
-  description      String?  @db.Text
-  triggerType      WorkflowTriggerType @default(AUTO_ON_CLAIM)
+  id                Int                 @id @default(autoincrement())
+  tenantId          Int
+  name              String              @db.VarChar(255)
+  description       String?             @db.Text
+  triggerType       WorkflowTriggerType @default(AUTO_ON_CLAIM)
   triggerConditions Json?
-  isDefault        Boolean  @default(false)
-  isActive         Boolean  @default(true)
-  version          Int      @default(1)
-  createdBy        Int?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  isDefault         Boolean             @default(false)
+  isActive          Boolean             @default(true)
+  version           Int                 @default(1)
+  createdBy         Int?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
   // Relations
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -611,16 +612,16 @@ model WorkflowStep {
   updatedAt                DateTime @updatedAt
 
   // Relations
-  workflow           Workflow              @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  requiredRole       Role?                 @relation(fields: [requiredRoleId], references: [id])
-  autoAssignUser     User?                 @relation(fields: [autoAssignTo], references: [id])
-  transitionsFrom    StepTransition[]      @relation("FromStep")
-  transitionsTo      StepTransition[]      @relation("ToStep")
-  stepNotifications  StepNotification[]
-  claimHistory       ClaimHistory[]
-  currentClaims      WarrantyClaim[]
-  claimAssignments   ClaimStepAssignment[]
-  subTasks           ClaimSubTask[]
+  workflow          Workflow              @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  requiredRole      Role?                 @relation(fields: [requiredRoleId], references: [id])
+  autoAssignUser    User?                 @relation(fields: [autoAssignTo], references: [id])
+  transitionsFrom   StepTransition[]      @relation("FromStep")
+  transitionsTo     StepTransition[]      @relation("ToStep")
+  stepNotifications StepNotification[]
+  claimHistory      ClaimHistory[]
+  currentClaims     WarrantyClaim[]
+  claimAssignments  ClaimStepAssignment[]
+  subTasks          ClaimSubTask[]
 
   @@map("workflow_steps")
 }
@@ -636,14 +637,14 @@ enum StepType {
 
 // Step Transitions
 model StepTransition {
-  id             Int      @id @default(autoincrement())
+  id             Int                     @id @default(autoincrement())
   fromStepId     Int
   toStepId       Int
-  transitionName String?  @db.VarChar(100)
+  transitionName String?                 @db.VarChar(100)
   conditionType  TransitionConditionType @default(ALWAYS)
   conditions     Json?
-  priority       Int      @default(0)
-  createdAt      DateTime @default(now())
+  priority       Int                     @default(0)
+  createdAt      DateTime                @default(now())
 
   // Relations
   fromStep WorkflowStep @relation("FromStep", fields: [fromStepId], references: [id], onDelete: Cascade)
@@ -660,15 +661,15 @@ enum TransitionConditionType {
 
 // Step Notifications
 model StepNotification {
-  id                     Int      @id @default(autoincrement())
+  id                     Int                      @id @default(autoincrement())
   stepId                 Int
   notificationTemplateId Int
   triggerEvent           NotificationTriggerEvent @default(ON_ENTER)
   recipientType          RecipientType
   recipientRoleId        Int?
   recipientUserId        Int?
-  isActive               Boolean  @default(true)
-  createdAt              DateTime @default(now())
+  isActive               Boolean                  @default(true)
+  createdAt              DateTime                 @default(now())
 
   // Relations
   step                 WorkflowStep         @relation(fields: [stepId], references: [id], onDelete: Cascade)
@@ -698,19 +699,19 @@ enum RecipientType {
 
 // Route Master (For organizing pickup/delivery areas)
 model Route {
-  id          Int      @id @default(autoincrement())
+  id          Int         @id @default(autoincrement())
   tenantId    Int
-  name        String   @db.VarChar(255)
-  zone        String?  @db.VarChar(255)  // Zone/Region name
-  areas       String?  @db.Text          // Covered areas (comma-separated or description)
-  description String?  @db.Text
+  name        String      @db.VarChar(255)
+  zone        String?     @db.VarChar(255) // Zone/Region name
+  areas       String?     @db.Text // Covered areas (comma-separated or description)
+  description String?     @db.Text
   status      RouteStatus @default(ACTIVE)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   // Relations
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  pickups     Pickup[]
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pickups Pickup[]
 
   @@unique([tenantId, name])
   @@map("routes")
@@ -723,18 +724,18 @@ enum RouteStatus {
 
 // Collectors (Logistics Personnel)
 model Collector {
-  id           Int      @id @default(autoincrement())
-  tenantId     Int
-  userId       Int?     @unique
-  name         String   @db.VarChar(255)
-  phone        String   @db.VarChar(50)
-  email        String?  @db.VarChar(255)
-  vehicleNumber String? @db.VarChar(50)
-  vehicleType  String?  @db.VarChar(100)
+  id            Int             @id @default(autoincrement())
+  tenantId      Int
+  userId        Int?            @unique
+  name          String          @db.VarChar(255)
+  phone         String          @db.VarChar(50)
+  email         String?         @db.VarChar(255)
+  vehicleNumber String?         @db.VarChar(50)
+  vehicleType   String?         @db.VarChar(100)
   assignedAreas Json?
-  status       CollectorStatus @default(ACTIVE)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  status        CollectorStatus @default(ACTIVE)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   // Relations
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -755,46 +756,47 @@ enum CollectorStatus {
 
 // Pickups (Shop to Service Center)
 model Pickup {
-  id               Int      @id @default(autoincrement())
-  tenantId         Int
-  claimId          Int?     // Optional - items added later by collector
-  warrantyCardId   Int?     // Direct link to warranty card
-  collectorId      Int?
-  routeId          Int?     // Link to Route master
-  pickupNumber     String?  @db.VarChar(100)
-  routeArea        String?  @db.VarChar(255)  // Legacy field - use routeId instead
-  fromType         PickupFromType @default(SHOP)
-  fromShopId       Int?
-  fromAddress      String?  @db.Text
-  toLocation       String   @default("Service Center") @db.VarChar(255)
-  scheduledDate    DateTime? @db.Date
-  scheduledTimeSlot String? @db.VarChar(50)
-  status           PickupStatus @default(PENDING)
-  pickedAt         DateTime?
-  receivedAt       DateTime?
-  receiverName     String?  @db.VarChar(255)
-  notes            String?  @db.Text
+  id                Int            @id @default(autoincrement())
+  tenantId          Int
+  claimId           Int? // Optional - items added later by collector
+  warrantyCardId    Int? // Direct link to warranty card
+  collectorId       Int?
+  routeId           Int? // Link to Route master
+  pickupNumber      String?        @db.VarChar(100)
+  routeArea         String?        @db.VarChar(255) // Legacy field - use routeId instead
+  fromType          PickupFromType @default(SHOP)
+  fromShopId        Int?
+  fromAddress       String?        @db.Text
+  toLocation        String         @default("Service Center") @db.VarChar(255)
+  scheduledDate     DateTime?      @db.Date
+  scheduledTimeSlot String?        @db.VarChar(50)
+  status            PickupStatus   @default(PENDING)
+  pickedAt          DateTime?
+  receivedAt        DateTime?
+  receiverName      String?        @db.VarChar(255)
+  notes             String?        @db.Text
   // Rejection tracking
-  rejectedAt       DateTime?
-  rejectedBy       Int?
-  rejectionReason  String?  @db.Text
+  rejectedAt        DateTime?
+  rejectedBy        Int?
+  rejectionReason   String?        @db.Text
   // Customer info for easy access (especially for CUSTOMER pickup type)
-  customerName     String?  @db.VarChar(255)
-  customerPhone    String?  @db.VarChar(50)
-  customerAddress  String?  @db.Text
+  customerName      String?        @db.VarChar(255)
+  customerPhone     String?        @db.VarChar(50)
+  customerAddress   String?        @db.Text
   // Link to collection trip when pickup is started
-  collectionTripId Int?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  collectionTripId  Int?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   // Relations
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  claim          WarrantyClaim?  @relation(fields: [claimId], references: [id])
-  warrantyCard   WarrantyCard?   @relation(fields: [warrantyCardId], references: [id])
-  collector      Collector?      @relation(fields: [collectorId], references: [id])
-  route          Route?          @relation(fields: [routeId], references: [id])
-  fromShop       Shop?           @relation(fields: [fromShopId], references: [id])
-  collectionTrip CollectionTrip? @relation(fields: [collectionTripId], references: [id])
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  claim           WarrantyClaim?   @relation(fields: [claimId], references: [id])
+  warrantyCard    WarrantyCard?    @relation(fields: [warrantyCardId], references: [id])
+  collector       Collector?       @relation(fields: [collectorId], references: [id])
+  route           Route?           @relation(fields: [routeId], references: [id])
+  fromShop        Shop?            @relation(fields: [fromShopId], references: [id])
+  collectionTrip  CollectionTrip?  @relation(fields: [collectionTripId], references: [id])
+  collectionItems CollectionItem[] // Items collected for this pickup
 
   @@index([tenantId, status])
   @@index([warrantyCardId])
@@ -814,32 +816,32 @@ enum PickupStatus {
   IN_TRANSIT
   COMPLETED
   CANCELLED
-  REJECTED    // Rejected after inspection - ready for return delivery
+  REJECTED // Rejected after inspection - ready for return delivery
 }
 
 // Deliveries (Service Center to Shop/Customer)
 model Delivery {
-  id               Int      @id @default(autoincrement())
-  tenantId         Int
-  claimId          Int
-  collectorId      Int?
-  deliveryNumber   String?  @db.VarChar(100)
-  fromLocation     String   @default("Service Center") @db.VarChar(255)
-  toType           DeliveryToType @default(SHOP)
-  toShopId         Int?
-  toAddress        String?  @db.Text
-  scheduledDate    DateTime? @db.Date
-  scheduledTimeSlot String? @db.VarChar(50)
-  status           DeliveryStatus @default(PENDING)
-  dispatchedAt     DateTime?
-  deliveredAt      DateTime?
-  recipientName    String?  @db.VarChar(255)
-  signatureUrl     String?  @db.VarChar(500)
-  deliveryProofUrl String?  @db.VarChar(500)
-  failureReason    String?  @db.Text
-  notes            String?  @db.Text
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                Int            @id @default(autoincrement())
+  tenantId          Int
+  claimId           Int
+  collectorId       Int?
+  deliveryNumber    String?        @db.VarChar(100)
+  fromLocation      String         @default("Service Center") @db.VarChar(255)
+  toType            DeliveryToType @default(SHOP)
+  toShopId          Int?
+  toAddress         String?        @db.Text
+  scheduledDate     DateTime?      @db.Date
+  scheduledTimeSlot String?        @db.VarChar(50)
+  status            DeliveryStatus @default(PENDING)
+  dispatchedAt      DateTime?
+  deliveredAt       DateTime?
+  recipientName     String?        @db.VarChar(255)
+  signatureUrl      String?        @db.VarChar(500)
+  deliveryProofUrl  String?        @db.VarChar(500)
+  failureReason     String?        @db.Text
+  notes             String?        @db.Text
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   // Relations
   tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -871,23 +873,23 @@ enum DeliveryStatus {
 
 // Collection Trip - Groups multiple items picked up together
 model CollectionTrip {
-  id              Int                @id @default(autoincrement())
+  id              Int                  @id @default(autoincrement())
   tenantId        Int
-  tripNumber      String             @db.VarChar(100)
+  tripNumber      String               @db.VarChar(100)
   collectorId     Int
-  fromType        TripFromType       @default(SHOP)
+  fromType        TripFromType         @default(SHOP)
   shopId          Int?
-  customerName    String?            @db.VarChar(255)
-  customerPhone   String?            @db.VarChar(50)
-  customerAddress String?            @db.Text
+  customerName    String?              @db.VarChar(255)
+  customerPhone   String?              @db.VarChar(50)
+  customerAddress String?              @db.Text
   status          CollectionTripStatus @default(IN_PROGRESS)
-  startedAt       DateTime           @default(now())
+  startedAt       DateTime             @default(now())
   completedAt     DateTime?
   receivedAt      DateTime?
   receivedBy      Int?
-  notes           String?            @db.Text
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  notes           String?              @db.Text
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   // Relations
   tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -895,7 +897,7 @@ model CollectionTrip {
   shop         Shop?            @relation(fields: [shopId], references: [id])
   receiverUser User?            @relation("CollectionTripReceiver", fields: [receivedBy], references: [id])
   items        CollectionItem[]
-  pickups      Pickup[]         // Scheduled pickups linked to this trip
+  pickups      Pickup[] // Scheduled pickups linked to this trip
 
   @@unique([tenantId, tripNumber])
   @@index([tenantId, status])
@@ -919,12 +921,15 @@ enum CollectionTripStatus {
 model CollectionItem {
   id               Int                  @id @default(autoincrement())
   tripId           Int
+  shopId           Int? // Shop this item was collected from
+  pickupId         Int? // Linked scheduled pickup (if any)
   serialNumber     String               @db.VarChar(100)
   issueDescription String               @db.Text
   warrantyCardId   Int?
   productId        Int?
   customerName     String?              @db.VarChar(255)
   customerPhone    String?              @db.VarChar(50)
+  customerAddress  String?              @db.Text
   claimId          Int?                 @unique
   status           CollectionItemStatus @default(COLLECTED)
   notes            String?              @db.Text
@@ -933,11 +938,14 @@ model CollectionItem {
 
   // Relations
   trip         CollectionTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  shop         Shop?          @relation(fields: [shopId], references: [id])
+  pickup       Pickup?        @relation(fields: [pickupId], references: [id])
   warrantyCard WarrantyCard?  @relation(fields: [warrantyCardId], references: [id])
   product      Product?       @relation(fields: [productId], references: [id])
   claim        WarrantyClaim? @relation(fields: [claimId], references: [id])
 
   @@index([tripId])
+  @@index([shopId])
   @@map("collection_items")
 }
 
@@ -945,6 +953,7 @@ enum CollectionItemStatus {
   COLLECTED
   RECEIVED
   PROCESSED
+  REJECTED
 }
 
 // Delivery Trip - Groups multiple deliveries going to same destination
@@ -1030,18 +1039,18 @@ enum DeliveryItemStatus {
 
 // Notification Templates
 model NotificationTemplate {
-  id           Int      @id @default(autoincrement())
+  id           Int              @id @default(autoincrement())
   tenantId     Int
-  name         String   @db.VarChar(255)
+  name         String           @db.VarChar(255)
   type         NotificationType
-  subject      String?  @db.VarChar(500)
-  bodyTemplate String   @db.Text
+  subject      String?          @db.VarChar(500)
+  bodyTemplate String           @db.Text
   variables    Json?
-  triggerEvent String?  @db.VarChar(100)
-  isSystem     Boolean  @default(false)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  triggerEvent String?          @db.VarChar(100)
+  isSystem     Boolean          @default(false)
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
   // Relations
   tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1061,17 +1070,17 @@ enum NotificationType {
 
 // In-App Notifications
 model Notification {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   tenantId  Int
   userId    Int
-  type      String   @db.VarChar(100)
-  title     String   @db.VarChar(255)
-  message   String   @db.Text
-  link      String?  @db.VarChar(500)
+  type      String    @db.VarChar(100)
+  title     String    @db.VarChar(255)
+  message   String    @db.Text
+  link      String?   @db.VarChar(500)
   data      Json?
-  isRead    Boolean  @default(false)
+  isRead    Boolean   @default(false)
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   // Relations
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1083,23 +1092,23 @@ model Notification {
 
 // SMS Logs
 model SmsLog {
-  id                Int      @id @default(autoincrement())
+  id                Int       @id @default(autoincrement())
   tenantId          Int
   templateId        Int?
-  phoneNumber       String   @db.VarChar(50)
-  message           String   @db.Text
+  phoneNumber       String    @db.VarChar(50)
+  message           String    @db.Text
   variables         Json?
-  provider          String?  @db.VarChar(100)
-  providerMessageId String?  @db.VarChar(255)
+  provider          String?   @db.VarChar(100)
+  providerMessageId String?   @db.VarChar(255)
   status            SmsStatus @default(PENDING)
-  errorMessage      String?  @db.Text
-  cost              Decimal? @db.Decimal(8, 4)
+  errorMessage      String?   @db.Text
+  cost              Decimal?  @db.Decimal(8, 4)
   sentAt            DateTime?
   deliveredAt       DateTime?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
 
   // Relations
-  tenant   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   template NotificationTemplate? @relation(fields: [templateId], references: [id])
 
   @@index([tenantId, status])
@@ -1115,24 +1124,24 @@ enum SmsStatus {
 
 // Email Logs
 model EmailLog {
-  id                Int      @id @default(autoincrement())
+  id                Int         @id @default(autoincrement())
   tenantId          Int
   templateId        Int?
-  toEmail           String   @db.VarChar(255)
+  toEmail           String      @db.VarChar(255)
   ccEmails          Json?
-  subject           String   @db.VarChar(500)
-  body              String   @db.Text
+  subject           String      @db.VarChar(500)
+  body              String      @db.Text
   attachments       Json?
-  provider          String?  @db.VarChar(100)
-  providerMessageId String?  @db.VarChar(255)
+  provider          String?     @db.VarChar(100)
+  providerMessageId String?     @db.VarChar(255)
   status            EmailStatus @default(PENDING)
-  errorMessage      String?  @db.Text
+  errorMessage      String?     @db.Text
   openedAt          DateTime?
   sentAt            DateTime?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime    @default(now())
 
   // Relations
-  tenant   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   template NotificationTemplate? @relation(fields: [templateId], references: [id])
 
   @@map("email_logs")
@@ -1175,25 +1184,25 @@ model AuditLog {
 
 // System Settings (Global)
 model SystemSetting {
-  id          Int      @id @default(autoincrement())
-  keyName     String   @unique @db.VarChar(100)
-  value       String?  @db.Text
+  id          Int         @id @default(autoincrement())
+  keyName     String      @unique @db.VarChar(100)
+  value       String?     @db.Text
   type        SettingType @default(STRING)
-  description String?  @db.Text
-  isPublic    Boolean  @default(false)
-  updatedAt   DateTime @updatedAt
+  description String?     @db.Text
+  isPublic    Boolean     @default(false)
+  updatedAt   DateTime    @updatedAt
 
   @@map("system_settings")
 }
 
 // Tenant Settings
 model TenantSetting {
-  id        Int      @id @default(autoincrement())
+  id        Int         @id @default(autoincrement())
   tenantId  Int
-  keyName   String   @db.VarChar(100)
-  value     String?  @db.Text
+  keyName   String      @db.VarChar(100)
+  value     String?     @db.Text
   type      SettingType @default(STRING)
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime    @updatedAt
 
   // Relations
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1249,51 +1258,51 @@ model InventoryCategory {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  parent      InventoryCategory?  @relation("InventoryCategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children    InventoryCategory[] @relation("InventoryCategoryHierarchy")
-  items       InventoryItem[]
+  tenant   Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent   InventoryCategory?  @relation("InventoryCategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children InventoryCategory[] @relation("InventoryCategoryHierarchy")
+  items    InventoryItem[]
 
   @@map("inventory_categories")
 }
 
 // Inventory Items (Parts/Components/Spare Parts)
 model InventoryItem {
-  id               Int      @id @default(autoincrement())
-  tenantId         Int
-  categoryId       Int?
+  id         Int  @id @default(autoincrement())
+  tenantId   Int
+  categoryId Int?
 
-  sku              String   @db.VarChar(100)
-  name             String   @db.VarChar(255)
-  description      String?  @db.Text
+  sku         String  @db.VarChar(100)
+  name        String  @db.VarChar(255)
+  description String? @db.Text
 
   // Stock management
-  quantity         Decimal  @default(0) @db.Decimal(10, 2)
-  reservedQuantity Decimal  @default(0) @db.Decimal(10, 2)
-  reorderLevel     Decimal  @default(0) @db.Decimal(10, 2)
-  reorderQuantity  Decimal  @default(0) @db.Decimal(10, 2)
+  quantity         Decimal @default(0) @db.Decimal(10, 2)
+  reservedQuantity Decimal @default(0) @db.Decimal(10, 2)
+  reorderLevel     Decimal @default(0) @db.Decimal(10, 2)
+  reorderQuantity  Decimal @default(0) @db.Decimal(10, 2)
 
   // Pricing
-  costPrice        Decimal  @default(0) @db.Decimal(12, 2)
-  sellingPrice     Decimal  @default(0) @db.Decimal(12, 2)
+  costPrice    Decimal @default(0) @db.Decimal(12, 2)
+  sellingPrice Decimal @default(0) @db.Decimal(12, 2)
 
   // Additional info
-  unit             String   @default("pcs") @db.VarChar(50)
-  location         String?  @db.VarChar(255)
-  supplier         String?  @db.VarChar(255)
-  barcode          String?  @db.VarChar(100)
+  unit     String  @default("pcs") @db.VarChar(50)
+  location String? @db.VarChar(255)
+  supplier String? @db.VarChar(255)
+  barcode  String? @db.VarChar(100)
 
-  isActive         Boolean  @default(true)
+  isActive Boolean @default(true)
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category         InventoryCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  transactions     InventoryTransaction[]
-  quotationItems   QuotationItem[]
-  claimParts       ClaimPart[]
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category       InventoryCategory?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transactions   InventoryTransaction[]
+  quotationItems QuotationItem[]
+  claimParts     ClaimPart[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, isActive])
@@ -1302,33 +1311,33 @@ model InventoryItem {
 
 // Inventory Transactions (Stock movements)
 model InventoryTransaction {
-  id              Int                      @id @default(autoincrement())
-  tenantId        Int
-  itemId          Int
+  id       Int @id @default(autoincrement())
+  tenantId Int
+  itemId   Int
 
   transactionType InventoryTransactionType
   quantity        Decimal                  @db.Decimal(10, 2)
 
   // Reference to source document
-  referenceType   String?                  @db.VarChar(50)
-  referenceId     Int?
+  referenceType String? @db.VarChar(50)
+  referenceId   Int?
 
   // Pricing at time of transaction
-  unitCost        Decimal?                 @db.Decimal(12, 2)
-  totalCost       Decimal?                 @db.Decimal(12, 2)
+  unitCost  Decimal? @db.Decimal(12, 2)
+  totalCost Decimal? @db.Decimal(12, 2)
 
   // Stock levels after transaction
-  previousQuantity Decimal                 @db.Decimal(10, 2)
-  newQuantity     Decimal                  @db.Decimal(10, 2)
+  previousQuantity Decimal @db.Decimal(10, 2)
+  newQuantity      Decimal @db.Decimal(10, 2)
 
-  notes           String?                  @db.Text
-  createdBy       Int
-  createdAt       DateTime                 @default(now())
+  notes     String?  @db.Text
+  createdBy Int
+  createdAt DateTime @default(now())
 
   // Relations
-  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  item            InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  createdByUser   User          @relation(fields: [createdBy], references: [id])
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  item          InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdByUser User          @relation(fields: [createdBy], references: [id])
 
   @@index([tenantId, itemId])
   @@index([referenceType, referenceId])
@@ -1350,48 +1359,48 @@ enum InventoryTransactionType {
 
 // Quotation for repair cost estimation
 model ClaimQuotation {
-  id              Int             @id @default(autoincrement())
-  tenantId        Int
-  claimId         Int
+  id       Int @id @default(autoincrement())
+  tenantId Int
+  claimId  Int
 
-  quotationNumber String          @db.VarChar(100)
+  quotationNumber String @db.VarChar(100)
 
-  status          QuotationStatus @default(DRAFT)
+  status QuotationStatus @default(DRAFT)
 
   // Amounts
-  subtotal        Decimal         @db.Decimal(12, 2)
-  taxRate         Decimal         @default(0) @db.Decimal(5, 2)
-  taxAmount       Decimal         @default(0) @db.Decimal(12, 2)
-  discountType    DiscountType?
-  discountValue   Decimal         @default(0) @db.Decimal(12, 2)
-  discountAmount  Decimal         @default(0) @db.Decimal(12, 2)
-  totalAmount     Decimal         @db.Decimal(12, 2)
+  subtotal       Decimal       @db.Decimal(12, 2)
+  taxRate        Decimal       @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal       @default(0) @db.Decimal(12, 2)
+  discountType   DiscountType?
+  discountValue  Decimal       @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount    Decimal       @db.Decimal(12, 2)
 
   // Validity
-  validUntil      DateTime?
+  validUntil DateTime?
 
   // Customer response tracking
   sentAt          DateTime?
-  sentVia         String?         @db.VarChar(50)
+  sentVia         String?   @db.VarChar(50)
   viewedAt        DateTime?
   approvedAt      DateTime?
-  approvedBy      String?         @db.VarChar(255)
+  approvedBy      String?   @db.VarChar(255)
   rejectedAt      DateTime?
-  rejectionReason String?         @db.Text
+  rejectionReason String?   @db.Text
 
-  notes           String?         @db.Text
-  termsAndConditions String?      @db.Text
+  notes              String? @db.Text
+  termsAndConditions String? @db.Text
 
-  createdBy       Int
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdBy Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  claim           WarrantyClaim   @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  createdByUser   User            @relation(fields: [createdBy], references: [id])
-  items           QuotationItem[]
-  invoice         ClaimInvoice?
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  claim         WarrantyClaim   @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  createdByUser User            @relation(fields: [createdBy], references: [id])
+  items         QuotationItem[]
+  invoice       ClaimInvoice?
 
   @@unique([tenantId, quotationNumber])
   @@index([claimId])
@@ -1415,32 +1424,32 @@ enum DiscountType {
 
 // Individual items in quotation
 model QuotationItem {
-  id              Int               @id @default(autoincrement())
-  quotationId     Int
+  id          Int @id @default(autoincrement())
+  quotationId Int
 
-  itemType        QuotationItemType
+  itemType QuotationItemType
 
   // For inventory items
   inventoryItemId Int?
 
   // Item details
-  name            String            @db.VarChar(255)
-  description     String?           @db.Text
-  sku             String?           @db.VarChar(100)
+  name        String  @db.VarChar(255)
+  description String? @db.Text
+  sku         String? @db.VarChar(100)
 
-  quantity        Decimal           @db.Decimal(10, 2)
-  unitPrice       Decimal           @db.Decimal(12, 2)
-  totalPrice      Decimal           @db.Decimal(12, 2)
+  quantity   Decimal @db.Decimal(10, 2)
+  unitPrice  Decimal @db.Decimal(12, 2)
+  totalPrice Decimal @db.Decimal(12, 2)
 
-  isWarrantyCovered Boolean         @default(false)
-  warrantyNotes   String?           @db.Text
+  isWarrantyCovered Boolean @default(false)
+  warrantyNotes     String? @db.Text
 
-  sortOrder       Int               @default(0)
-  createdAt       DateTime          @default(now())
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
 
   // Relations
-  quotation       ClaimQuotation    @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  inventoryItem   InventoryItem?    @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  quotation     ClaimQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
 
   @@index([quotationId])
   @@map("quotation_items")
@@ -1459,44 +1468,44 @@ enum QuotationItemType {
 
 // Parts/Items used in claim repair
 model ClaimPart {
-  id              Int           @id @default(autoincrement())
-  claimId         Int
+  id      Int @id @default(autoincrement())
+  claimId Int
 
-  partType        ClaimPartType @default(INVENTORY)
+  partType ClaimPartType @default(INVENTORY)
 
   // For inventory items
   inventoryItemId Int?
 
   // Part details
-  name            String        @db.VarChar(255)
-  description     String?       @db.Text
-  sku             String?       @db.VarChar(100)
+  name        String  @db.VarChar(255)
+  description String? @db.Text
+  sku         String? @db.VarChar(100)
 
-  quantity        Decimal       @db.Decimal(10, 2)
-  unitCost        Decimal       @default(0) @db.Decimal(12, 2)
-  unitPrice       Decimal       @db.Decimal(12, 2)
-  totalPrice      Decimal       @db.Decimal(12, 2)
+  quantity   Decimal @db.Decimal(10, 2)
+  unitCost   Decimal @default(0) @db.Decimal(12, 2)
+  unitPrice  Decimal @db.Decimal(12, 2)
+  totalPrice Decimal @db.Decimal(12, 2)
 
   // Warranty coverage
-  isWarrantyCovered Boolean     @default(false)
+  isWarrantyCovered Boolean @default(false)
 
   // Issue tracking (for new items being given to customer)
-  isNewItemIssue  Boolean       @default(false)
-  isIssued        Boolean       @default(false)
-  issuedAt        DateTime?
-  issuedBy        Int?
+  isNewItemIssue Boolean   @default(false)
+  isIssued       Boolean   @default(false)
+  issuedAt       DateTime?
+  issuedBy       Int?
 
-  notes           String?       @db.Text
-  createdBy       Int
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  notes     String?  @db.Text
+  createdBy Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  claim           WarrantyClaim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
-  issuedByUser    User?          @relation("ClaimPartIssuedBy", fields: [issuedBy], references: [id])
-  createdByUser   User           @relation("ClaimPartCreatedBy", fields: [createdBy], references: [id])
-  invoiceItems    InvoiceItem[]
+  claim         WarrantyClaim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  issuedByUser  User?          @relation("ClaimPartIssuedBy", fields: [issuedBy], references: [id])
+  createdByUser User           @relation("ClaimPartCreatedBy", fields: [createdBy], references: [id])
+  invoiceItems  InvoiceItem[]
 
   @@index([claimId])
   @@map("claim_parts")
@@ -1509,24 +1518,24 @@ enum ClaimPartType {
 
 // Service charges for claim
 model ClaimServiceCharge {
-  id                Int               @id @default(autoincrement())
-  claimId           Int
+  id      Int @id @default(autoincrement())
+  claimId Int
 
-  chargeType        ServiceChargeType
-  description       String            @db.VarChar(255)
-  amount            Decimal           @db.Decimal(12, 2)
+  chargeType  ServiceChargeType
+  description String            @db.VarChar(255)
+  amount      Decimal           @db.Decimal(12, 2)
 
-  isWarrantyCovered Boolean           @default(false)
+  isWarrantyCovered Boolean @default(false)
 
-  notes             String?           @db.Text
-  createdBy         Int
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  notes     String?  @db.Text
+  createdBy Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  claim             WarrantyClaim     @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  createdByUser     User              @relation(fields: [createdBy], references: [id])
-  invoiceItems      InvoiceItem[]
+  claim         WarrantyClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  createdByUser User          @relation(fields: [createdBy], references: [id])
+  invoiceItems  InvoiceItem[]
 
   @@index([claimId])
   @@map("claim_service_charges")
@@ -1547,59 +1556,59 @@ enum ServiceChargeType {
 
 // Final Invoice for claim
 model ClaimInvoice {
-  id              Int           @id @default(autoincrement())
-  tenantId        Int
-  claimId         Int           @unique
-  quotationId     Int?          @unique
+  id          Int  @id @default(autoincrement())
+  tenantId    Int
+  claimId     Int  @unique
+  quotationId Int? @unique
 
-  invoiceNumber   String        @db.VarChar(100)
-  invoiceDate     DateTime      @default(now())
+  invoiceNumber String   @db.VarChar(100)
+  invoiceDate   DateTime @default(now())
 
-  status          InvoiceStatus @default(DRAFT)
+  status InvoiceStatus @default(DRAFT)
 
   // Customer details (snapshot at invoice time)
-  customerName    String        @db.VarChar(255)
-  customerPhone   String        @db.VarChar(50)
-  customerEmail   String?       @db.VarChar(255)
-  customerAddress String?       @db.Text
+  customerName    String  @db.VarChar(255)
+  customerPhone   String  @db.VarChar(50)
+  customerEmail   String? @db.VarChar(255)
+  customerAddress String? @db.Text
 
   // Amounts
-  subtotal        Decimal       @db.Decimal(12, 2)
-  taxRate         Decimal       @default(0) @db.Decimal(5, 2)
-  taxAmount       Decimal       @default(0) @db.Decimal(12, 2)
-  discountType    DiscountType?
-  discountValue   Decimal       @default(0) @db.Decimal(12, 2)
-  discountAmount  Decimal       @default(0) @db.Decimal(12, 2)
-  totalAmount     Decimal       @db.Decimal(12, 2)
+  subtotal       Decimal       @db.Decimal(12, 2)
+  taxRate        Decimal       @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal       @default(0) @db.Decimal(12, 2)
+  discountType   DiscountType?
+  discountValue  Decimal       @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount    Decimal       @db.Decimal(12, 2)
 
   // Warranty covered items total (for reference)
   warrantyCoveredAmount Decimal @default(0) @db.Decimal(12, 2)
 
   // Payment tracking
-  paidAmount      Decimal       @default(0) @db.Decimal(12, 2)
-  paymentStatus   PaymentStatus @default(UNPAID)
-  paymentMethod   String?       @db.VarChar(50)
-  paymentReference String?      @db.VarChar(255)
-  paidAt          DateTime?
+  paidAmount       Decimal       @default(0) @db.Decimal(12, 2)
+  paymentStatus    PaymentStatus @default(UNPAID)
+  paymentMethod    String?       @db.VarChar(50)
+  paymentReference String?       @db.VarChar(255)
+  paidAt           DateTime?
 
   // Delivery readiness
-  isReadyForDelivery Boolean    @default(false)
+  isReadyForDelivery Boolean @default(false)
 
-  notes           String?       @db.Text
-  termsAndConditions String?    @db.Text
+  notes              String? @db.Text
+  termsAndConditions String? @db.Text
 
-  pdfUrl          String?       @db.VarChar(500)
+  pdfUrl String? @db.VarChar(500)
 
-  createdBy       Int
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdBy Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  claim           WarrantyClaim   @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  quotation       ClaimQuotation? @relation(fields: [quotationId], references: [id], onDelete: SetNull)
-  createdByUser   User            @relation(fields: [createdBy], references: [id])
-  items           InvoiceItem[]
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  claim         WarrantyClaim   @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  quotation     ClaimQuotation? @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  createdByUser User            @relation(fields: [createdBy], references: [id])
+  items         InvoiceItem[]
 
   @@unique([tenantId, invoiceNumber])
   @@map("claim_invoices")
@@ -1622,32 +1631,32 @@ enum PaymentStatus {
 
 // Invoice line items
 model InvoiceItem {
-  id                   Int             @id @default(autoincrement())
-  invoiceId            Int
+  id        Int @id @default(autoincrement())
+  invoiceId Int
 
-  itemType             InvoiceItemType
+  itemType InvoiceItemType
 
   // Reference to source
   claimPartId          Int?
   claimServiceChargeId Int?
 
-  name                 String          @db.VarChar(255)
-  description          String?         @db.Text
-  sku                  String?         @db.VarChar(100)
+  name        String  @db.VarChar(255)
+  description String? @db.Text
+  sku         String? @db.VarChar(100)
 
-  quantity             Decimal         @db.Decimal(10, 2)
-  unitPrice            Decimal         @db.Decimal(12, 2)
-  totalPrice           Decimal         @db.Decimal(12, 2)
+  quantity   Decimal @db.Decimal(10, 2)
+  unitPrice  Decimal @db.Decimal(12, 2)
+  totalPrice Decimal @db.Decimal(12, 2)
 
-  isWarrantyCovered    Boolean         @default(false)
+  isWarrantyCovered Boolean @default(false)
 
-  sortOrder            Int             @default(0)
-  createdAt            DateTime        @default(now())
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
 
   // Relations
-  invoice              ClaimInvoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  claimPart            ClaimPart?          @relation(fields: [claimPartId], references: [id], onDelete: SetNull)
-  claimServiceCharge   ClaimServiceCharge? @relation(fields: [claimServiceChargeId], references: [id], onDelete: SetNull)
+  invoice            ClaimInvoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  claimPart          ClaimPart?          @relation(fields: [claimPartId], references: [id], onDelete: SetNull)
+  claimServiceCharge ClaimServiceCharge? @relation(fields: [claimServiceChargeId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
   @@map("invoice_items")

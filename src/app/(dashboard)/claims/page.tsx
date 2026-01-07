@@ -1,7 +1,7 @@
 "use client";
 
 // ===========================================
-// Claims List Page with Pending Review
+// Claims List Page - Workflow Matched
 // ===========================================
 
 import { useEffect, useState, useCallback } from "react";
@@ -12,14 +12,13 @@ import {
   ClipboardList,
   User,
   Package,
-  Store,
-  Phone,
-  Calendar,
-  CheckCircle,
-  XCircle,
   Clock,
-  Truck,
-  AlertTriangle,
+  Wrench,
+  CheckCircle2,
+  XCircle,
+  Inbox,
+  Filter,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -37,16 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Claim {
   id: number;
@@ -58,6 +48,7 @@ interface Claim {
   currentLocation: string;
   reportedBy: string;
   createdAt: string;
+  acceptedAt: string | null;
   warrantyCard: {
     id: number;
     cardNumber: string;
@@ -67,63 +58,60 @@ interface Claim {
     shop: { id: number; name: string; code: string | null } | null;
   } | null;
   assignedUser: { id: number; firstName: string | null; lastName: string | null } | null;
+  workflow: { id: number; name: string } | null;
+  currentStep: { id: number; stepName: string } | null;
   _count: { claimHistory: number };
 }
 
-interface PendingPickup {
-  id: number;
-  pickupNumber: string;
-  status: string;
-  receivedAt: string | null;
-  receiverName: string | null;
-  fromType: string;
-  notes: string | null;
-  createdAt: string;
-  claim: {
-    id: number;
-    claimNumber: string;
-    currentStatus: string;
-    issueDescription: string;
-    priority: string;
-    createdByUser: { id: number; firstName: string; lastName: string } | null;
-  } | null;
-  warrantyCard: {
-    id: number;
-    cardNumber: string;
-    serialNumber: string;
-    product: { id: number; name: string; modelNumber: string | null } | null;
-    customer: { id: number; name: string; phone: string; address: string | null } | null;
-    shop: { id: number; name: string; code: string | null; address: string | null; phone: string | null } | null;
-  } | null;
-  collector: { id: number; name: string; phone: string } | null;
-  fromShop: { id: number; name: string; address: string | null; phone: string | null } | null;
+interface Stats {
+  newClaims: number;
+  inProgress: number;
+  completed: number;
+  rejected: number;
 }
 
 export default function ClaimsPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("pending-review");
+  const [activeTab, setActiveTab] = useState("new");
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [pendingPickups, setPendingPickups] = useState<PendingPickup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingPending, setLoadingPending] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [stats, setStats] = useState<Stats>({
+    newClaims: 0,
+    inProgress: 0,
+    completed: 0,
+    rejected: 0,
+  });
 
-  // Reject dialog state
-  const [rejectPickup, setRejectPickup] = useState<PendingPickup | null>(null);
-  const [rejectionReason, setRejectionReason] = useState("");
-  const [rejecting, setRejecting] = useState(false);
-
-  // Accept dialog state
-  const [acceptPickup, setAcceptPickup] = useState<PendingPickup | null>(null);
-  const [accepting, setAccepting] = useState(false);
-
-  // Fetch claims
-  const fetchClaims = useCallback(async () => {
+  // Fetch claims based on tab
+  const fetchClaims = useCallback(async (isRefresh = false) => {
     try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
       let url = "/api/claims?limit=100";
-      if (statusFilter !== "all") url += `&status=${statusFilter}`;
-      if (priorityFilter !== "all") url += `&priority=${priorityFilter}`;
+
+      // Filter by tab
+      if (activeTab === "new") {
+        url += "&status=new";
+      } else if (activeTab === "in-progress") {
+        url += "&status=in_progress,in_service,processing,diagnosis,repair";
+      } else if (activeTab === "completed") {
+        url += "&status=resolved,completed,closed";
+      }
+
+      // Additional filters
+      if (statusFilter !== "all" && activeTab === "all") {
+        url += `&status=${statusFilter}`;
+      }
+      if (priorityFilter !== "all") {
+        url += `&priority=${priorityFilter}`;
+      }
 
       const res = await fetch(url);
       const data = await res.json();
@@ -135,87 +123,42 @@ export default function ClaimsPage() {
       toast.error("Failed to load claims");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [statusFilter, priorityFilter]);
+  }, [activeTab, statusFilter, priorityFilter]);
 
-  // Fetch pending review pickups
-  const fetchPendingPickups = async () => {
+  // Fetch stats
+  const fetchStats = async () => {
     try {
-      const res = await fetch("/api/logistics/pickups/pending-review");
-      const data = await res.json();
-      if (data.success) {
-        setPendingPickups(data.data);
-      }
+      const [newRes, progressRes, completedRes, rejectedRes] = await Promise.all([
+        fetch("/api/claims?status=new&limit=1"),
+        fetch("/api/claims?status=in_progress,in_service,processing&limit=1"),
+        fetch("/api/claims?status=resolved,completed,closed&limit=1"),
+        fetch("/api/claims?status=rejected&limit=1"),
+      ]);
+
+      const [newData, progressData, completedData, rejectedData] = await Promise.all([
+        newRes.json(),
+        progressRes.json(),
+        completedRes.json(),
+        rejectedRes.json(),
+      ]);
+
+      setStats({
+        newClaims: newData.meta?.total || 0,
+        inProgress: progressData.meta?.total || 0,
+        completed: completedData.meta?.total || 0,
+        rejected: rejectedData.meta?.total || 0,
+      });
     } catch (error) {
-      console.error("Error fetching pending pickups:", error);
-    } finally {
-      setLoadingPending(false);
+      console.error("Error fetching stats:", error);
     }
   };
 
   useEffect(() => {
     fetchClaims();
-    fetchPendingPickups();
+    fetchStats();
   }, [fetchClaims]);
-
-  // Accept pickup and create claim
-  const handleAccept = async () => {
-    if (!acceptPickup) return;
-
-    setAccepting(true);
-    try {
-      const res = await fetch(`/api/logistics/pickups/${acceptPickup.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "accept" }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Claim accepted and moved to processing");
-        setAcceptPickup(null);
-        fetchPendingPickups();
-        fetchClaims();
-      } else {
-        toast.error(data.error?.message || "Failed to accept claim");
-      }
-    } catch (error) {
-      toast.error("Failed to accept claim");
-    } finally {
-      setAccepting(false);
-    }
-  };
-
-  // Reject pickup
-  const handleReject = async () => {
-    if (!rejectPickup || !rejectionReason) return;
-
-    setRejecting(true);
-    try {
-      const res = await fetch(`/api/logistics/pickups/${rejectPickup.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "reject",
-          rejectionReason,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Pickup rejected - item ready for return delivery");
-        setRejectPickup(null);
-        setRejectionReason("");
-        fetchPendingPickups();
-      } else {
-        toast.error(data.error?.message || "Failed to reject pickup");
-      }
-    } catch (error) {
-      toast.error("Failed to reject pickup");
-    } finally {
-      setRejecting(false);
-    }
-  };
 
   // Get priority badge
   const getPriorityBadge = (priority: string) => {
@@ -235,19 +178,19 @@ export default function ClaimsPage() {
   // Get status badge
   const getStatusBadge = (status: string) => {
     const statusLower = status.toLowerCase();
-    if (["new", "pending", "pending_review", "received"].includes(statusLower)) {
-      return <Badge variant="secondary">{status}</Badge>;
+    if (["new", "pending", "received"].includes(statusLower)) {
+      return <Badge variant="secondary">{status.replace(/_/g, " ")}</Badge>;
     }
-    if (["in_progress", "in_service", "processing"].includes(statusLower)) {
-      return <Badge className="bg-blue-100 text-blue-800">{status}</Badge>;
+    if (["in_progress", "in_service", "processing", "diagnosis", "repair"].includes(statusLower)) {
+      return <Badge className="bg-blue-100 text-blue-800">{status.replace(/_/g, " ")}</Badge>;
     }
     if (["resolved", "completed", "closed"].includes(statusLower)) {
-      return <Badge className="bg-green-100 text-green-800">{status}</Badge>;
+      return <Badge className="bg-green-100 text-green-800">{status.replace(/_/g, " ")}</Badge>;
     }
     if (["rejected", "cancelled"].includes(statusLower)) {
-      return <Badge variant="destructive">{status}</Badge>;
+      return <Badge variant="destructive">{status.replace(/_/g, " ")}</Badge>;
     }
-    return <Badge>{status}</Badge>;
+    return <Badge>{status.replace(/_/g, " ")}</Badge>;
   };
 
   // Table columns
@@ -282,12 +225,12 @@ export default function ClaimsPage() {
     },
     {
       key: "customer",
-      title: "Customer",
+      title: "Customer / Shop",
       render: (claim) => (
         <div>
           <div className="font-medium">{claim.warrantyCard?.customer?.name || "N/A"}</div>
           <div className="text-xs text-muted-foreground">
-            {claim.warrantyCard?.customer?.phone || "-"}
+            {claim.warrantyCard?.shop?.name || "-"}
           </div>
         </div>
       ),
@@ -298,9 +241,6 @@ export default function ClaimsPage() {
       render: (claim) => (
         <div className="max-w-[200px]">
           <p className="text-sm truncate">{claim.issueDescription}</p>
-          {claim.issueCategory && (
-            <Badge variant="outline" className="mt-1">{claim.issueCategory}</Badge>
-          )}
         </div>
       ),
     },
@@ -312,7 +252,16 @@ export default function ClaimsPage() {
     {
       key: "status",
       title: "Status",
-      render: (claim) => getStatusBadge(claim.currentStatus),
+      render: (claim) => (
+        <div className="space-y-1">
+          {getStatusBadge(claim.currentStatus)}
+          {claim.currentStep && (
+            <div className="text-xs text-muted-foreground">
+              {claim.currentStep.stepName}
+            </div>
+          )}
+        </div>
+      ),
     },
     {
       key: "assignedTo",
@@ -321,206 +270,313 @@ export default function ClaimsPage() {
         claim.assignedUser ? (
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-muted-foreground" />
-            <span>
+            <span className="text-sm">
               {claim.assignedUser.firstName} {claim.assignedUser.lastName}
             </span>
           </div>
         ) : (
-          <span className="text-muted-foreground">Unassigned</span>
+          <span className="text-muted-foreground text-sm">Unassigned</span>
         ),
     },
     {
       key: "actions",
-      title: "Actions",
+      title: "",
       render: (claim) => (
         <Button
           variant="ghost"
-          size="icon"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             router.push(`/claims/${claim.id}`);
           }}
         >
-          <Eye className="h-4 w-4" />
+          <Eye className="h-4 w-4 mr-1" />
+          View
         </Button>
       ),
     },
   ];
 
-  // Status options
-  const statusOptions = [
-    { value: "all", label: "All Statuses" },
-    { value: "new", label: "New" },
-    { value: "pending", label: "Pending" },
-    { value: "in_progress", label: "In Progress" },
-    { value: "in_service", label: "In Service" },
-    { value: "resolved", label: "Resolved" },
-    { value: "closed", label: "Closed" },
-  ];
-
-  // Render pending pickup card
-  const renderPendingCard = (pickup: PendingPickup) => (
-    <Card key={pickup.id} className="hover:shadow-md transition-shadow">
+  // Render claim card for mobile/grid view
+  const renderClaimCard = (claim: Claim) => (
+    <Card
+      key={claim.id}
+      className="cursor-pointer hover:shadow-md transition-shadow"
+      onClick={() => router.push(`/claims/${claim.id}`)}
+    >
       <CardContent className="p-4">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-          {/* Left: Main Info */}
-          <div className="flex-1 space-y-3">
-            {/* Header */}
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{pickup.pickupNumber}</span>
-                  {pickup.claim?.priority && getPriorityBadge(pickup.claim.priority)}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {pickup.claim?.claimNumber}
-                </div>
-              </div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="font-mono font-medium">{claim.claimNumber}</span>
+              {getPriorityBadge(claim.priority)}
             </div>
-
-            {/* Product Info */}
             <div className="flex items-center gap-2 text-sm">
               <Package className="h-4 w-4 text-muted-foreground" />
-              <span className="font-medium">{pickup.warrantyCard?.product?.name || "N/A"}</span>
+              <span>{claim.warrantyCard?.product?.name || "N/A"}</span>
               <span className="text-muted-foreground">
-                S/N: {pickup.warrantyCard?.serialNumber}
+                ({claim.warrantyCard?.serialNumber})
               </span>
             </div>
-
-            {/* Shop/Customer Info */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              {pickup.fromShop && (
-                <div className="flex items-center gap-2">
-                  <Store className="h-4 w-4 text-muted-foreground" />
-                  <span>{pickup.fromShop.name}</span>
-                </div>
-              )}
-              {pickup.warrantyCard?.customer && (
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                  <span>{pickup.warrantyCard.customer.name}</span>
-                </div>
-              )}
-              {pickup.warrantyCard?.customer?.phone && (
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  <span>{pickup.warrantyCard.customer.phone}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Issue Description */}
-            {pickup.claim?.issueDescription && (
-              <div className="text-sm text-muted-foreground bg-muted/50 p-2 rounded">
-                <span className="font-medium">Issue: </span>
-                {pickup.claim.issueDescription}
-              </div>
-            )}
-
-            {/* Received Info */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                Received: {pickup.receivedAt ? format(new Date(pickup.receivedAt), "dd MMM yyyy HH:mm") : "-"}
-              </div>
-              {pickup.receiverName && (
-                <div className="flex items-center gap-1">
-                  <User className="h-3 w-3" />
-                  By: {pickup.receiverName}
-                </div>
-              )}
+            <p className="text-sm text-muted-foreground line-clamp-2">
+              {claim.issueDescription}
+            </p>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              {format(new Date(claim.createdAt), "dd MMM yyyy HH:mm")}
             </div>
           </div>
-
-          {/* Right: Actions */}
-          <div className="flex flex-row sm:flex-col gap-2">
-            <Button
-              size="sm"
-              className="flex-1 sm:flex-none"
-              onClick={() => setAcceptPickup(pickup)}
-            >
-              <CheckCircle className="mr-2 h-4 w-4" />
-              Accept
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1 sm:flex-none text-destructive hover:text-destructive"
-              onClick={() => setRejectPickup(pickup)}
-            >
-              <XCircle className="mr-2 h-4 w-4" />
-              Reject
-            </Button>
+          <div className="text-right space-y-2">
+            {getStatusBadge(claim.currentStatus)}
+            {claim.assignedUser && (
+              <div className="text-xs text-muted-foreground">
+                {claim.assignedUser.firstName}
+              </div>
+            )}
           </div>
         </div>
       </CardContent>
     </Card>
   );
 
+  // Status options for "All" tab
+  const statusOptions = [
+    { value: "all", label: "All Statuses" },
+    { value: "new", label: "New" },
+    { value: "in_progress", label: "In Progress" },
+    { value: "in_service", label: "In Service" },
+    { value: "resolved", label: "Resolved" },
+    { value: "completed", label: "Completed" },
+    { value: "rejected", label: "Rejected" },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Warranty Claims"
-        description="Manage warranty claim requests"
+        description="Manage and process warranty claims"
         actions={
-          <Button onClick={() => router.push("/claims/new")}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Claim
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                fetchClaims(true);
+                fetchStats();
+              }}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button onClick={() => router.push("/claims/new")}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Claim
+            </Button>
+          </div>
         }
       />
 
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card
+          className={`cursor-pointer transition-all ${activeTab === "new" ? "ring-2 ring-primary" : "hover:shadow-md"}`}
+          onClick={() => setActiveTab("new")}
+        >
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-blue-100 dark:bg-blue-900 rounded-full">
+                <Inbox className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{stats.newClaims}</p>
+                <p className="text-sm text-muted-foreground">New Claims</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card
+          className={`cursor-pointer transition-all ${activeTab === "in-progress" ? "ring-2 ring-primary" : "hover:shadow-md"}`}
+          onClick={() => setActiveTab("in-progress")}
+        >
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-orange-100 dark:bg-orange-900 rounded-full">
+                <Wrench className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{stats.inProgress}</p>
+                <p className="text-sm text-muted-foreground">In Progress</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card
+          className={`cursor-pointer transition-all ${activeTab === "completed" ? "ring-2 ring-primary" : "hover:shadow-md"}`}
+          onClick={() => setActiveTab("completed")}
+        >
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-green-100 dark:bg-green-900 rounded-full">
+                <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{stats.completed}</p>
+                <p className="text-sm text-muted-foreground">Completed</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card
+          className={`cursor-pointer transition-all ${activeTab === "all" ? "ring-2 ring-primary" : "hover:shadow-md"}`}
+          onClick={() => setActiveTab("all")}
+        >
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-gray-100 dark:bg-gray-800 rounded-full">
+                <ClipboardList className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{stats.newClaims + stats.inProgress + stats.completed + stats.rejected}</p>
+                <p className="text-sm text-muted-foreground">All Claims</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="pending-review" className="flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            Pending Review
-            {pendingPickups.length > 0 && (
+          <TabsTrigger value="new" className="flex items-center gap-2">
+            <Inbox className="h-4 w-4" />
+            New
+            {stats.newClaims > 0 && (
               <Badge variant="secondary" className="ml-1">
-                {pendingPickups.length}
+                {stats.newClaims}
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="all-claims" className="flex items-center gap-2">
+          <TabsTrigger value="in-progress" className="flex items-center gap-2">
+            <Wrench className="h-4 w-4" />
+            In Progress
+            {stats.inProgress > 0 && (
+              <Badge variant="secondary" className="ml-1">
+                {stats.inProgress}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="completed" className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4" />
+            Completed
+          </TabsTrigger>
+          <TabsTrigger value="all" className="flex items-center gap-2">
             <ClipboardList className="h-4 w-4" />
             All Claims
           </TabsTrigger>
         </TabsList>
 
-        {/* Pending Review Tab */}
-        <TabsContent value="pending-review" className="space-y-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg p-3">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
+        {/* New Claims Tab */}
+        <TabsContent value="new" className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <Inbox className="h-4 w-4 text-blue-600" />
             <span>
-              These items have been picked up and are awaiting your review.
-              Accept to create a warranty claim or reject to return the item.
+              New claims received from collections. Review and assign to start processing.
             </span>
           </div>
 
-          {loadingPending ? (
-            <div className="text-center py-8 text-muted-foreground">Loading...</div>
-          ) : pendingPickups.length === 0 ? (
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : claims.length === 0 ? (
             <div className="text-center py-12">
-              <Truck className="mx-auto h-12 w-12 text-muted-foreground/50" />
-              <p className="mt-2 text-muted-foreground">No pickups pending review</p>
+              <Inbox className="mx-auto h-12 w-12 text-muted-foreground/50" />
+              <p className="mt-2 font-medium">No new claims</p>
               <p className="text-sm text-muted-foreground">
-                Completed pickups will appear here for claim creation or rejection
+                New claims from collections will appear here
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {pendingPickups.map(renderPendingCard)}
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {claims.map(renderClaimCard)}
             </div>
           )}
         </TabsContent>
 
+        {/* In Progress Tab */}
+        <TabsContent value="in-progress" className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+            <Wrench className="h-4 w-4 text-orange-600" />
+            <span>
+              Claims currently being processed - diagnosis, repair, or quality check.
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : claims.length === 0 ? (
+            <div className="text-center py-12">
+              <Wrench className="mx-auto h-12 w-12 text-muted-foreground/50" />
+              <p className="mt-2 font-medium">No claims in progress</p>
+              <p className="text-sm text-muted-foreground">
+                Claims being worked on will appear here
+              </p>
+            </div>
+          ) : (
+            <DataTable
+              data={claims}
+              columns={columns}
+              searchKey="claimNumber"
+              searchPlaceholder="Search claims..."
+              emptyMessage="No claims in progress"
+            />
+          )}
+        </TabsContent>
+
+        {/* Completed Tab */}
+        <TabsContent value="completed" className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <span>
+              Claims that have been resolved and are ready for delivery or already delivered.
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : claims.length === 0 ? (
+            <div className="text-center py-12">
+              <CheckCircle2 className="mx-auto h-12 w-12 text-muted-foreground/50" />
+              <p className="mt-2 font-medium">No completed claims</p>
+              <p className="text-sm text-muted-foreground">
+                Resolved claims will appear here
+              </p>
+            </div>
+          ) : (
+            <DataTable
+              data={claims}
+              columns={columns}
+              searchKey="claimNumber"
+              searchPlaceholder="Search completed claims..."
+              emptyMessage="No completed claims"
+            />
+          )}
+        </TabsContent>
+
         {/* All Claims Tab */}
-        <TabsContent value="all-claims" className="space-y-4">
+        <TabsContent value="all" className="space-y-4">
           {/* Filters */}
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Filters:</span>
+            </div>
             <div className="w-48">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger>
@@ -555,108 +611,12 @@ export default function ClaimsPage() {
             data={claims}
             columns={columns}
             searchKey="claimNumber"
-            searchPlaceholder="Search by claim number, customer..."
+            searchPlaceholder="Search by claim number, product, customer..."
             emptyMessage={loading ? "Loading..." : "No claims found"}
             emptyDescription="Get started by creating your first warranty claim."
           />
         </TabsContent>
       </Tabs>
-
-      {/* Accept Confirmation Dialog */}
-      <Dialog open={!!acceptPickup} onOpenChange={() => setAcceptPickup(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Accept & Create Claim</DialogTitle>
-            <DialogDescription>
-              Accept this pickup and move the claim to processing?
-            </DialogDescription>
-          </DialogHeader>
-          {acceptPickup && (
-            <div className="space-y-3 text-sm">
-              <div className="bg-muted/50 p-3 rounded-lg space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Pickup:</span>
-                  <span className="font-medium">{acceptPickup.pickupNumber}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Product:</span>
-                  <span>{acceptPickup.warrantyCard?.product?.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Serial:</span>
-                  <span className="font-mono">{acceptPickup.warrantyCard?.serialNumber}</span>
-                </div>
-                {acceptPickup.warrantyCard?.customer && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Customer:</span>
-                    <span>{acceptPickup.warrantyCard.customer.name}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAcceptPickup(null)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAccept} disabled={accepting}>
-              {accepting ? "Accepting..." : "Accept & Process"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reject Dialog */}
-      <Dialog open={!!rejectPickup} onOpenChange={() => setRejectPickup(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Reject Pickup</DialogTitle>
-            <DialogDescription>
-              Reject this item and schedule it for return delivery
-            </DialogDescription>
-          </DialogHeader>
-          {rejectPickup && (
-            <div className="space-y-4">
-              <div className="bg-muted/50 p-3 rounded-lg space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Pickup:</span>
-                  <span className="font-medium">{rejectPickup.pickupNumber}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Product:</span>
-                  <span>{rejectPickup.warrantyCard?.product?.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Serial:</span>
-                  <span className="font-mono">{rejectPickup.warrantyCard?.serialNumber}</span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Rejection Reason *</Label>
-                <Textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder="Why is this being rejected? (e.g., Not covered by warranty, Physical damage, etc.)"
-                  rows={3}
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectPickup(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleReject}
-              disabled={rejecting || !rejectionReason}
-            >
-              {rejecting ? "Rejecting..." : "Reject & Return"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

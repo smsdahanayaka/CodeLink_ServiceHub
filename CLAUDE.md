@@ -297,31 +297,34 @@ Permissions are stored as string arrays in the `Role.permissions` JSON field.
 │                                                                             │
 │  PATH A: Direct Creation                PATH B: From Collection             │
 │  ─────────────────────────              ───────────────────────             │
-│  Staff creates claim manually    OR     Pickup scheduled for item           │
-│           ↓                                       ↓                         │
-│  Workflow starts immediately            Collector starts pickup             │
-│                                                   ↓                         │
-│                                         Collection trip created             │
-│                                                   ↓                         │
-│                                         Items collected at shop             │
-│                                                   ↓                         │
+│  Staff creates claim at                 Pickup scheduled for item           │
+│  /claims/new                                      ↓                         │
+│           ↓                             Collector starts trip               │
+│  Claim created with                     (status: IN_PROGRESS)               │
+│  status "new"                                     ↓                         │
+│           ↓                             Items collected at shop             │
+│  Goes to /claims                        (items status: COLLECTED)           │
+│  "New" tab                                        ↓                         │
 │                                         Trip marked IN_TRANSIT              │
 │                                                   ↓                         │
-│                                         Service center RECEIVES trip        │
+│                                         /claims/pending-acceptance          │
+│                                         Shows trips grouped by:             │
+│                                         Collector → Shop → Items            │
 │                                                   ↓                         │
-│                                         Claims auto-created with            │
-│                                         acceptanceStatus: PENDING           │
-│                                                   ↓                         │
-│                                         Staff reviews in                    │
-│                                         "Pending Acceptance" page           │
+│                                         For each item, verify:              │
+│                                         ☐ Warranty Card Received            │
+│                                         ☐ Item Received                     │
 │                                                   ↓                         │
 │                                    ┌─────────────┴─────────────┐            │
 │                                    ↓                           ↓            │
-│                              ACCEPT                        REJECT           │
-│                           (validates fields)          (requires reason)     │
+│                              RECEIVE                       REJECT           │
+│                         (both boxes checked)          (requires reason)     │
 │                                    ↓                           ↓            │
-│                           Workflow starts           Return delivery         │
-│                                                     scheduled               │
+│                         Creates claim with           Creates return         │
+│                         status "new"                 delivery               │
+│                                    ↓                                        │
+│                         Goes to /claims                                     │
+│                         "New" tab                                           │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     ↓
@@ -498,7 +501,8 @@ const result = await prisma.$transaction(async (tx) => {
 | `/api/logistics/collection-trips` | GET/POST | List/create collection trips |
 | `/api/logistics/collection-trips/[id]` | GET/PATCH | Trip details/status |
 | `/api/logistics/collection-trips/[id]/items` | GET/POST | Manage trip items |
-| `/api/logistics/collection-trips/[id]/receive` | POST | Receive trip → creates claims |
+| `/api/logistics/collection-trips/[id]/items/[itemId]/receive` | POST | Receive single item → creates claim |
+| `/api/logistics/collection-trips/[id]/receive` | POST | Receive entire trip → creates claims |
 | `/api/logistics/deliveries` | GET/POST | List/create deliveries |
 | `/api/logistics/deliveries/[id]` | GET/PUT/PATCH | Delivery CRUD + status |
 | `/api/logistics/delivery-trips` | GET/POST | List/create delivery trips |
@@ -538,20 +542,42 @@ const result = await prisma.$transaction(async (tx) => {
 - **Notifications**: SMS/Email on ON_ENTER, ON_EXIT, escalation events
 - **Rollback**: Return to previous steps (with permission check)
 
-### 2. Claim Acceptance Workflow
+### 2. Collection Receiving & Claim Creation
 
-For claims created from collections:
+**Page**: `/claims/pending-acceptance` - Receive Collections
 
-1. Claims arrive with `acceptanceStatus: PENDING`
-2. Staff views grouped claims in `/claims/pending-acceptance`
-3. Claims grouped by: **Collector → Shop → Claims**
-4. Required fields for acceptance:
-   - Product (linked)
-   - Customer (linked)
-   - Issue Description
-5. Staff can edit missing fields via `/api/claims/[id]/update-pending`
-6. **Accept**: Validates fields → starts workflow → creates history entry
-7. **Reject**: Requires reason → schedules return delivery → records in history
+**Stats Dashboard**:
+- **Collecting**: Trips with IN_PROGRESS status (collectors at shops)
+- **In Transit**: Trips with IN_TRANSIT status (on the way to service center)
+- **Received**: Completed trips
+- **Collectors**: Total active collectors
+
+**Item-wise Receiving Flow**:
+1. View IN_TRANSIT collection trips grouped by **Collector → Shop → Items**
+2. For each item, verify:
+   - **Warranty Card Received** (checkbox)
+   - **Item Received** (checkbox)
+3. Check warranty status (valid/expired/not found)
+4. **Receive**: Both checkboxes required → creates warranty card if needed → creates claim with status "new"
+5. **Reject**: Requires reason → creates return delivery
+
+**After Receiving → Claims Page** (`/claims`):
+
+| Tab | Shows | Status Filter |
+|-----|-------|---------------|
+| **New** | Claims just received from collections | `new` |
+| **In Progress** | Claims being processed | `in_progress`, `diagnosis`, `repair` |
+| **Completed** | Resolved claims ready for delivery | `resolved`, `completed`, `closed` |
+| **All Claims** | All claims with filters | All statuses |
+
+**API Endpoint**: `POST /api/logistics/collection-trips/[id]/items/[itemId]/receive`
+```json
+// Request
+{ "action": "receive" | "reject", "rejectionReason": "..." }
+
+// Response (receive)
+{ "claim": { "id": 1, "claimNumber": "CL24122300001" }, "warrantyCard": {...} }
+```
 
 ### 3. Logistics System
 
@@ -614,6 +640,47 @@ npm run db:seed          # Seed database
 npm run db:studio        # Open Prisma Studio
 npm run db:reset         # Reset database
 ```
+
+## Troubleshooting
+
+### Prisma Client File Lock (Windows)
+
+If you get `EPERM: operation not permitted` error when running `npx prisma generate`:
+
+```bash
+# Option 1: Delete .prisma folder and regenerate
+rmdir /s /q node_modules\.prisma
+npx prisma generate
+
+# Option 2: If Option 1 doesn't work, close all terminals/IDEs and retry
+# Close VS Code, terminals, etc.
+npx prisma generate
+npm run dev
+
+# Option 3: Full reinstall (last resort)
+rmdir /s /q node_modules
+npm install
+npx prisma generate
+npm run dev
+```
+
+### Database Empty After Fresh Install
+
+```bash
+npm run db:seed
+```
+
+Login credentials after seeding:
+- Company Code: `demo`
+- Email: `admin@demo.codelink.com`
+- Password: `admin123`
+
+### Hydration Mismatch Errors
+
+If you see React hydration errors in the console:
+1. Hard refresh: `Ctrl + Shift + R`
+2. Clear site data in DevTools → Application → Storage
+3. Try incognito/private window
 
 ## Environment Variables
 
