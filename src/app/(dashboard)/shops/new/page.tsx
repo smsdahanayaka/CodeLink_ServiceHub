@@ -79,7 +79,10 @@ export default function NewShopPage() {
       const res = await fetch("/api/shops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          isVerified: true, // Shops created from main page are auto-verified
+        }),
       });
 
       const data = await res.json();

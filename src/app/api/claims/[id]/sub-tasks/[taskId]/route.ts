@@ -168,6 +168,32 @@ export async function PUT(
       },
     });
 
+    // Send notification if assigned to a new user (not self, not the same as before)
+    if (
+      data.assignedTo &&
+      data.assignedTo !== user.id &&
+      data.assignedTo !== subTask.assignedTo
+    ) {
+      const assignerName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+      await prisma.notification.create({
+        data: {
+          tenantId: user.tenantId,
+          userId: data.assignedTo,
+          type: "SUB_TASK_ASSIGNED",
+          title: "Task Assigned to You",
+          message: `${assignerName} assigned you a sub-task: "${updated.title}" for claim ${claim.claimNumber}`,
+          link: `/claims/${claimId}`,
+          data: {
+            claimId,
+            claimNumber: claim.claimNumber,
+            subTaskId: updated.id,
+            subTaskTitle: updated.title,
+            assignedBy: user.id,
+          },
+        },
+      });
+    }
+
     return successResponse(updated);
   } catch (error) {
     console.error("Error updating sub-task:", error);

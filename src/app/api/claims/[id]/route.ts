@@ -29,14 +29,41 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const canViewAll = user.permissions.includes("claims.view_all");
     const canViewAssigned = user.permissions.includes("claims.view_assigned");
 
+    // First, check if user has access via sub-task or step assignment
+    let hasSubTaskAccess = false;
+    let hasStepAssignmentAccess = false;
+
+    if (!canViewAll) {
+      // Check if user has a sub-task assigned in this claim
+      const subTaskCount = await prisma.claimSubTask.count({
+        where: {
+          claimId,
+          assignedTo: user.id,
+          claim: { tenantId: user.tenantId },
+        },
+      });
+      hasSubTaskAccess = subTaskCount > 0;
+
+      // Check if user has a step assignment for this claim
+      const stepAssignmentCount = await prisma.claimStepAssignment.count({
+        where: {
+          claimId,
+          assignedUserId: user.id,
+          claim: { tenantId: user.tenantId },
+        },
+      });
+      hasStepAssignmentAccess = stepAssignmentCount > 0;
+    }
+
     // Build where condition
-    const whereCondition: { id: number; tenantId: number; assignedTo?: number } = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereCondition: any = {
       id: claimId,
       tenantId: user.tenantId,
     };
 
-    // If user can only view assigned, filter by assignedTo
-    if (!canViewAll && canViewAssigned) {
+    // If user can only view assigned (and doesn't have sub-task/step access), filter by assignedTo
+    if (!canViewAll && !hasSubTaskAccess && !hasStepAssignmentAccess && canViewAssigned) {
       whereCondition.assignedTo = user.id;
     }
 
@@ -104,7 +131,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 transitionName: true,
                 conditionType: true,
                 toStep: {
-                  select: { id: true, name: true, statusName: true },
+                  select: { id: true, name: true, statusName: true, stepType: true },
                 },
               },
             },
@@ -140,7 +167,60 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return errorResponse("Claim not found", "NOT_FOUND", 404);
     }
 
-    return successResponse(claim);
+    // Get current step assignment info (for step status and assignee)
+    let currentStepAssignment = null;
+    let isCurrentStepAssignee = false;
+    if (claim.currentStepId) {
+      const stepAssignment = await prisma.claimStepAssignment.findUnique({
+        where: {
+          claimId_workflowStepId: {
+            claimId: claim.id,
+            workflowStepId: claim.currentStepId,
+          },
+        },
+        select: {
+          stepStatus: true,
+          stepStartedAt: true,
+          stepCompletedAt: true,
+          assignedUserId: true,
+          assignedUser: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      });
+      currentStepAssignment = stepAssignment;
+      isCurrentStepAssignee = stepAssignment?.assignedUserId === user.id;
+    }
+
+    // Build user context for client-side view determination
+    const isAdmin = canViewAll;
+    const canEdit = canViewAll || isCurrentStepAssignee || hasStepAssignmentAccess;
+    const canProcessStep = canViewAll || isCurrentStepAssignee;
+    const canAddSubTasks = canViewAll;
+    const canAssignWorkflow = canViewAll || user.permissions.includes("claims.assign");
+    const canRollback = canViewAll || user.permissions.includes("claims.escalate");
+
+    return successResponse({
+      ...claim,
+      currentStepAssignee: currentStepAssignment?.assignedUser || null,
+      currentStepStatus: currentStepAssignment?.stepStatus || null,
+      currentStepStartedAt: currentStepAssignment?.stepStartedAt || null,
+      // User context for dual view
+      _userContext: {
+        isAdmin,
+        isStepAssignee: isCurrentStepAssignee,
+        hasSubTaskAccess,
+        hasStepAssignmentAccess,
+        canEdit,
+        canProcessStep,
+        canAddSubTasks,
+        canAssignWorkflow,
+        canRollback,
+      },
+      // Legacy fields (keep for backward compatibility)
+      _currentUserId: user.id,
+      _currentUserCanViewAll: canViewAll,
+    });
   } catch (error) {
     console.error("Error fetching claim:", error);
     if (error instanceof Error && error.message === "Unauthorized") {

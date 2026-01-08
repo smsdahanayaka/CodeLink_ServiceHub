@@ -2,10 +2,11 @@
 
 // ===========================================
 // Pending Acceptance Page
-// View IN_TRANSIT collections and receive items one by one
+// View IN_TRANSIT collections grouped by Trip → Shop → Items
 // ===========================================
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Package,
   User,
@@ -57,6 +58,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -68,6 +70,14 @@ interface CollectionItem {
   customerName: string | null;
   customerPhone: string | null;
   notes: string | null;
+  shopId: number | null;
+  shop: {
+    id: number;
+    name: string;
+    address: string | null;
+    phone: string | null;
+    isVerified: boolean;
+  } | null;
   warrantyCard: {
     id: number;
     cardNumber: string;
@@ -98,6 +108,7 @@ interface CollectionTrip {
     name: string;
     address: string | null;
     phone: string | null;
+    isVerified: boolean;
   } | null;
   customerName: string | null;
   customerPhone: string | null;
@@ -106,66 +117,76 @@ interface CollectionTrip {
   _count: { items: number };
 }
 
-interface GroupedData {
-  [collectorId: string]: {
-    collector: CollectionTrip["collector"];
-    trips: CollectionTrip[];
-    totalItems: number;
-  };
+// Group items by shop within a trip
+interface ShopGroup {
+  shop: {
+    id: number;
+    name: string;
+    address: string | null;
+    phone: string | null;
+    isVerified: boolean;
+  } | null;
+  shopKey: string;
+  items: CollectionItem[];
+  pendingCount: number;
 }
 
 export default function PendingAcceptancePage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [trips, setTrips] = useState<CollectionTrip[]>([]);
-  const [groupedData, setGroupedData] = useState<GroupedData>({});
-  const [expandedCollectors, setExpandedCollectors] = useState<Set<string>>(new Set());
+  const [receivedTrips, setReceivedTrips] = useState<CollectionTrip[]>([]);
   const [expandedTrips, setExpandedTrips] = useState<Set<string>>(new Set());
+  const [expandedShops, setExpandedShops] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<"pending" | "received" | "rejected">("pending");
 
   // Stats
   const [stats, setStats] = useState({
     inProgress: 0,
     inTransit: 0,
     receivedToday: 0,
-    totalCollectors: 0,
+    rejectedCount: 0,
   });
+
+  // Rejected items state
+  const [rejectedItems, setRejectedItems] = useState<CollectionItem[]>([]);
 
   // Action states
   const [processingItem, setProcessingItem] = useState<number | null>(null);
   const [rejectingItem, setRejectingItem] = useState<{ tripId: number; item: CollectionItem } | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
-  // Verification checkboxes state: { itemId: { warrantyCardReceived: boolean, itemReceived: boolean } }
+  // Verification checkboxes state
   const [itemVerification, setItemVerification] = useState<Record<number, { warrantyCardReceived: boolean; itemReceived: boolean }>>({});
 
   useEffect(() => {
     fetchInTransitCollections();
+    fetchReceivedCollections();
+    fetchRejectedItems();
     fetchStats();
   }, []);
 
   const fetchStats = async () => {
     try {
-      // Fetch all collection trips for stats
-      const [inProgressRes, inTransitRes, receivedRes, collectorsRes] = await Promise.all([
+      const [inProgressRes, inTransitRes, receivedRes] = await Promise.all([
         fetch("/api/logistics/collection-trips?status=IN_PROGRESS&limit=1"),
         fetch("/api/logistics/collection-trips?status=IN_TRANSIT&limit=1"),
         fetch("/api/logistics/collection-trips?status=RECEIVED&limit=1"),
-        fetch("/api/logistics/collectors?status=ACTIVE&limit=1"),
       ]);
 
-      const [inProgressData, inTransitData, receivedData, collectorsData] = await Promise.all([
+      const [inProgressData, inTransitData, receivedData] = await Promise.all([
         inProgressRes.json(),
         inTransitRes.json(),
         receivedRes.json(),
-        collectorsRes.json(),
       ]);
 
-      setStats({
+      setStats(prev => ({
+        ...prev,
         inProgress: inProgressData.meta?.total || 0,
         inTransit: inTransitData.meta?.total || 0,
         receivedToday: receivedData.meta?.total || 0,
-        totalCollectors: collectorsData.meta?.total || 0,
-      });
+      }));
     } catch (error) {
       console.error("Error fetching stats:", error);
     }
@@ -186,26 +207,17 @@ export default function PendingAcceptancePage() {
         const tripsData = result.data as CollectionTrip[];
         setTrips(tripsData);
 
-        // Group by collector
-        const grouped: GroupedData = {};
-        for (const trip of tripsData) {
-          const collectorKey = `collector_${trip.collector.id}`;
-          if (!grouped[collectorKey]) {
-            grouped[collectorKey] = {
-              collector: trip.collector,
-              trips: [],
-              totalItems: 0,
-            };
-          }
-          grouped[collectorKey].trips.push(trip);
-          grouped[collectorKey].totalItems += trip.items.filter(i => i.status === "COLLECTED").length;
-        }
-        setGroupedData(grouped);
-
-        // Expand all by default
-        setExpandedCollectors(new Set(Object.keys(grouped)));
+        // Expand all trips and shops by default
         const tripKeys = tripsData.map(t => `trip_${t.id}`);
         setExpandedTrips(new Set(tripKeys));
+
+        // Expand all shop groups
+        const shopKeys: string[] = [];
+        tripsData.forEach(trip => {
+          const groups = groupItemsByShop(trip.items, trip.shop);
+          groups.forEach(g => shopKeys.push(`trip_${trip.id}_${g.shopKey}`));
+        });
+        setExpandedShops(new Set(shopKeys));
       } else {
         toast.error(result.error?.message || "Failed to load collections");
       }
@@ -217,8 +229,79 @@ export default function PendingAcceptancePage() {
       setRefreshing(false);
     }
 
-    // Refresh stats too
     fetchStats();
+  };
+
+  // Fetch received collections
+  const fetchReceivedCollections = async () => {
+    try {
+      const res = await fetch("/api/logistics/collection-trips?status=RECEIVED&limit=50");
+      const result = await res.json();
+
+      if (result.success) {
+        setReceivedTrips(result.data as CollectionTrip[]);
+      }
+    } catch (error) {
+      console.error("Error fetching received collections:", error);
+    }
+  };
+
+  // Fetch rejected items from all trips
+  const fetchRejectedItems = async () => {
+    try {
+      // Fetch all trips and filter items with REJECTED status
+      const res = await fetch("/api/logistics/collection-trips?limit=100");
+      const result = await res.json();
+
+      if (result.success) {
+        const allTrips = result.data as CollectionTrip[];
+        const rejected: CollectionItem[] = [];
+        allTrips.forEach(trip => {
+          trip.items.forEach(item => {
+            if (item.status === "REJECTED") {
+              rejected.push(item);
+            }
+          });
+        });
+        setRejectedItems(rejected);
+        setStats(prev => ({ ...prev, rejectedCount: rejected.length }));
+      }
+    } catch (error) {
+      console.error("Error fetching rejected items:", error);
+    }
+  };
+
+  // Group items by shop within a trip (uses trip's shop as fallback)
+  const groupItemsByShop = (items: CollectionItem[], tripShop: CollectionTrip["shop"]): ShopGroup[] => {
+    const groups: Record<string, ShopGroup> = {};
+
+    items.forEach(item => {
+      // Use item's shop, or fallback to trip's shop, or "no_shop" for direct customers
+      const effectiveShop = item.shop || tripShop;
+      const shopKey = effectiveShop?.id ? `shop_${effectiveShop.id}` : "no_shop";
+
+      if (!groups[shopKey]) {
+        groups[shopKey] = {
+          shop: effectiveShop,
+          shopKey,
+          items: [],
+          pendingCount: 0,
+        };
+      }
+      groups[shopKey].items.push(item);
+      if (item.status === "COLLECTED") {
+        groups[shopKey].pendingCount++;
+      }
+    });
+
+    // Sort: shops with pending items first, then by shop name
+    return Object.values(groups).sort((a, b) => {
+      if (a.pendingCount > 0 && b.pendingCount === 0) return -1;
+      if (a.pendingCount === 0 && b.pendingCount > 0) return 1;
+      const nameA = a.shop?.name || "ZZZ";
+      const nameB = b.shop?.name || "ZZZ";
+      return nameA.localeCompare(nameB);
+    });
   };
 
   const handleReceiveItem = async (tripId: number, itemId: number) => {
@@ -235,6 +318,8 @@ export default function PendingAcceptancePage() {
       if (result.success) {
         toast.success(`Claim ${result.data.claim.claimNumber} created successfully`);
         fetchInTransitCollections(true);
+        fetchReceivedCollections();
+        fetchRejectedItems();
       } else {
         toast.error(result.error?.message || "Failed to receive item");
       }
@@ -270,6 +355,8 @@ export default function PendingAcceptancePage() {
         setRejectingItem(null);
         setRejectionReason("");
         fetchInTransitCollections(true);
+        fetchReceivedCollections();
+        fetchRejectedItems();
       } else {
         toast.error(result.error?.message || "Failed to reject item");
       }
@@ -281,16 +368,6 @@ export default function PendingAcceptancePage() {
     }
   };
 
-  const toggleCollector = (key: string) => {
-    const newExpanded = new Set(expandedCollectors);
-    if (newExpanded.has(key)) {
-      newExpanded.delete(key);
-    } else {
-      newExpanded.add(key);
-    }
-    setExpandedCollectors(newExpanded);
-  };
-
   const toggleTrip = (key: string) => {
     const newExpanded = new Set(expandedTrips);
     if (newExpanded.has(key)) {
@@ -299,6 +376,16 @@ export default function PendingAcceptancePage() {
       newExpanded.add(key);
     }
     setExpandedTrips(newExpanded);
+  };
+
+  const toggleShop = (key: string) => {
+    const newExpanded = new Set(expandedShops);
+    if (newExpanded.has(key)) {
+      newExpanded.delete(key);
+    } else {
+      newExpanded.add(key);
+    }
+    setExpandedShops(newExpanded);
   };
 
   const getWarrantyStatus = (item: CollectionItem) => {
@@ -328,15 +415,15 @@ export default function PendingAcceptancePage() {
   };
 
   const canReceive = (item: CollectionItem) => {
-    // Must have product info (from warranty card or directly)
     const hasProduct = item.warrantyCard?.product || item.product;
-    // Must have both verifications checked
     const verification = getVerification(item.id);
     const isVerified = verification.warrantyCardReceived && verification.itemReceived;
     return hasProduct && item.status === "COLLECTED" && isVerified;
   };
 
-  const totalPendingItems = Object.values(groupedData).reduce((sum, g) => sum + g.totalItems, 0);
+  const totalPendingItems = trips.reduce((sum, trip) =>
+    sum + trip.items.filter(i => i.status === "COLLECTED").length, 0
+  );
 
   if (loading) {
     return (
@@ -359,7 +446,7 @@ export default function PendingAcceptancePage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => fetchInTransitCollections(true)}
+            onClick={() => { fetchInTransitCollections(true); fetchReceivedCollections(); fetchRejectedItems(); }}
             disabled={refreshing}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
@@ -409,135 +496,170 @@ export default function PendingAcceptancePage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={stats.rejectedCount > 0 ? "ring-2 ring-red-500" : ""}>
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-purple-100 dark:bg-purple-900 rounded-full">
-                <User className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+              <div className="p-3 bg-red-100 dark:bg-red-900 rounded-full">
+                <X className="h-6 w-6 text-red-600 dark:text-red-400" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{stats.totalCollectors}</p>
-                <p className="text-sm text-muted-foreground">Collectors</p>
+                <p className="text-2xl font-bold">{stats.rejectedCount}</p>
+                <p className="text-sm text-muted-foreground">Rejected</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Empty State */}
-      {Object.keys(groupedData).length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Truck className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <p className="text-lg font-medium">No Collections In Transit</p>
-            <p className="text-muted-foreground">When collectors are on their way, items will appear here.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {Object.entries(groupedData).map(([collectorKey, group]) => {
-            const isCollectorExpanded = expandedCollectors.has(collectorKey);
+      {/* Tabs for Pending, Received, and Rejected */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "pending" | "received" | "rejected")}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="pending" className="flex items-center gap-2">
+            <Truck className="h-4 w-4" />
+            Pending ({trips.reduce((acc, t) => acc + t.items.filter(i => i.status === "COLLECTED").length, 0)})
+          </TabsTrigger>
+          <TabsTrigger value="received" className="flex items-center gap-2">
+            <Check className="h-4 w-4" />
+            Received ({receivedTrips.reduce((acc, t) => acc + t.items.length, 0)})
+          </TabsTrigger>
+          <TabsTrigger value="rejected" className="flex items-center gap-2">
+            <X className="h-4 w-4" />
+            Rejected ({rejectedItems.length})
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Pending Tab */}
+        <TabsContent value="pending" className="mt-4">
+          {trips.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Truck className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-lg font-medium">No Collections In Transit</p>
+                <p className="text-muted-foreground">When collectors are on their way, items will appear here.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {/* LEVEL 1: Collection Trips */}
+              {trips.map((trip) => {
+            const tripKey = `trip_${trip.id}`;
+            const isTripExpanded = expandedTrips.has(tripKey);
+            const shopGroups = groupItemsByShop(trip.items, trip.shop);
+            const pendingItems = trip.items.filter(i => i.status === "COLLECTED").length;
 
             return (
-              <Card key={collectorKey}>
+              <Card key={tripKey} className="overflow-hidden">
                 <Collapsible
-                  open={isCollectorExpanded}
-                  onOpenChange={() => toggleCollector(collectorKey)}
+                  open={isTripExpanded}
+                  onOpenChange={() => toggleTrip(tripKey)}
                 >
+                  {/* Trip Header */}
                   <CollapsibleTrigger asChild>
                     <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          {isCollectorExpanded ? (
+                          {isTripExpanded ? (
                             <ChevronDown className="h-5 w-5" />
                           ) : (
                             <ChevronRight className="h-5 w-5" />
                           )}
-                          <div className="p-2 bg-primary/10 rounded-full">
-                            <User className="h-5 w-5 text-primary" />
+                          <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-full">
+                            <Truck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                           </div>
                           <div>
-                            <CardTitle className="text-lg">{group.collector.name}</CardTitle>
-                            <CardDescription className="flex items-center gap-4">
-                              {group.collector.phone && (
+                            <CardTitle className="text-lg flex items-center gap-2">
+                              Collection {trip.tripNumber}
+                              <Badge variant="outline" className="text-xs">
+                                {trip.status}
+                              </Badge>
+                            </CardTitle>
+                            <CardDescription className="flex items-center gap-4 mt-1">
+                              <span className="flex items-center gap-1">
+                                <User className="h-3 w-3" />
+                                {trip.collector.name}
+                              </span>
+                              {trip.collector.phone && (
                                 <span className="flex items-center gap-1">
                                   <Phone className="h-3 w-3" />
-                                  {group.collector.phone}
+                                  {trip.collector.phone}
                                 </span>
                               )}
-                              {group.collector.vehicleNumber && (
-                                <span className="flex items-center gap-1">
-                                  <Truck className="h-3 w-3" />
-                                  {group.collector.vehicleNumber}
-                                </span>
-                              )}
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {format(new Date(trip.startedAt), "MMM d, h:mm a")}
+                              </span>
                             </CardDescription>
                           </div>
                         </div>
-                        <Badge variant="secondary" className="text-base px-3 py-1">
-                          {group.totalItems} items
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">
+                            {shopGroups.length} {shopGroups.length === 1 ? "shop" : "shops"}
+                          </Badge>
+                          <Badge variant={pendingItems > 0 ? "default" : "secondary"}>
+                            {pendingItems} pending
+                          </Badge>
+                        </div>
                       </div>
                     </CardHeader>
                   </CollapsibleTrigger>
 
                   <CollapsibleContent>
-                    <CardContent className="pt-0 space-y-4">
-                      {group.trips.map((trip) => {
-                        const tripKey = `trip_${trip.id}`;
-                        const isTripExpanded = expandedTrips.has(tripKey);
-                        const pendingItems = trip.items.filter(i => i.status === "COLLECTED");
+                    <CardContent className="pt-0 space-y-3">
+                      {/* LEVEL 2: Shops within Trip */}
+                      {shopGroups.map((shopGroup) => {
+                        const shopKey = `trip_${trip.id}_${shopGroup.shopKey}`;
+                        const isShopExpanded = expandedShops.has(shopKey);
 
                         return (
-                          <div key={tripKey} className="border rounded-lg overflow-hidden">
+                          <div key={shopKey} className="border rounded-lg overflow-hidden">
                             <Collapsible
-                              open={isTripExpanded}
-                              onOpenChange={() => toggleTrip(tripKey)}
+                              open={isShopExpanded}
+                              onOpenChange={() => toggleShop(shopKey)}
                             >
+                              {/* Shop Header */}
                               <CollapsibleTrigger asChild>
                                 <div className="p-4 flex items-center justify-between cursor-pointer hover:bg-muted/30 transition-colors bg-muted/10">
                                   <div className="flex items-center gap-3">
-                                    {isTripExpanded ? (
+                                    {isShopExpanded ? (
                                       <ChevronDown className="h-4 w-4" />
                                     ) : (
                                       <ChevronRight className="h-4 w-4" />
                                     )}
                                     <Store className="h-5 w-5 text-muted-foreground" />
                                     <div>
-                                      <div className="font-medium flex items-center gap-2">
-                                        {trip.shop?.name || trip.customerName || "Direct Customer"}
-                                        <Badge variant="outline" className="text-xs">
-                                          {trip.tripNumber}
-                                        </Badge>
+                                      <div className="font-medium">
+                                        {shopGroup.shop?.name || "Direct Customer"}
                                       </div>
-                                      <div className="text-sm text-muted-foreground flex items-center gap-3">
-                                        {(trip.shop?.address || trip.customerAddress) && (
-                                          <span className="flex items-center gap-1">
-                                            <MapPin className="h-3 w-3" />
-                                            {trip.shop?.address || trip.customerAddress}
-                                          </span>
-                                        )}
-                                        <span className="flex items-center gap-1">
-                                          <Clock className="h-3 w-3" />
-                                          {format(new Date(trip.startedAt), "MMM d, h:mm a")}
-                                        </span>
-                                      </div>
+                                      {shopGroup.shop?.address && (
+                                        <div className="text-sm text-muted-foreground flex items-center gap-1">
+                                          <MapPin className="h-3 w-3" />
+                                          {shopGroup.shop.address}
+                                        </div>
+                                      )}
+                                      {shopGroup.shop?.phone && (
+                                        <div className="text-sm text-muted-foreground flex items-center gap-1">
+                                          <Phone className="h-3 w-3" />
+                                          {shopGroup.shop.phone}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
-                                  <Badge variant={pendingItems.length > 0 ? "default" : "secondary"}>
-                                    {pendingItems.length} pending
+                                  <Badge variant={shopGroup.pendingCount > 0 ? "default" : "secondary"}>
+                                    {shopGroup.pendingCount} / {shopGroup.items.length} pending
                                   </Badge>
                                 </div>
                               </CollapsibleTrigger>
 
                               <CollapsibleContent>
+                                {/* LEVEL 3: Items within Shop */}
                                 <div className="divide-y">
-                                  {trip.items.map((item) => {
+                                  {shopGroup.items.map((item) => {
                                     const warranty = getWarrantyStatus(item);
                                     const WarrantyIcon = warranty.icon;
                                     const isProcessing = processingItem === item.id;
                                     const canReceiveItem = canReceive(item);
 
+                                    // Already processed items
                                     if (item.status !== "COLLECTED") {
                                       return (
                                         <div key={item.id} className="p-4 bg-muted/20">
@@ -561,12 +683,13 @@ export default function PendingAcceptancePage() {
                                       );
                                     }
 
+                                    // Pending items
                                     return (
                                       <div
                                         key={item.id}
                                         className="p-4 hover:bg-muted/20 transition-colors"
                                       >
-                                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
                                           {/* Item Info */}
                                           <div className="flex-1 space-y-2">
                                             <div className="flex items-center gap-3">
@@ -574,8 +697,8 @@ export default function PendingAcceptancePage() {
                                               <span className="font-semibold text-lg">{item.serialNumber}</span>
                                             </div>
 
-                                            {/* Product Info */}
                                             <div className="pl-8 space-y-1">
+                                              {/* Product Info */}
                                               <div className="flex items-center gap-2">
                                                 <span className="text-sm text-muted-foreground">Product:</span>
                                                 <span className="font-medium">
@@ -608,20 +731,30 @@ export default function PendingAcceptancePage() {
                                                 <span className="text-sm">{item.issueDescription}</span>
                                               </div>
 
-                                              {/* Customer Info */}
-                                              {(item.customerName || item.warrantyCard?.customer) && (
-                                                <div className="flex items-center gap-2">
-                                                  <span className="text-sm text-muted-foreground">Customer:</span>
-                                                  <span className="text-sm">
-                                                    {item.warrantyCard?.customer?.name || item.customerName}
-                                                    {(item.warrantyCard?.customer?.phone || item.customerPhone) && (
-                                                      <span className="text-muted-foreground ml-1">
-                                                        ({item.warrantyCard?.customer?.phone || item.customerPhone})
-                                                      </span>
-                                                    )}
-                                                  </span>
-                                                </div>
-                                              )}
+                                              {/* Shop Info */}
+                                              {(() => {
+                                                const effectiveShop = item.shop || trip.shop;
+                                                if (!effectiveShop) return null;
+                                                return (
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-sm text-muted-foreground">Shop:</span>
+                                                    <span className="text-sm flex items-center gap-1">
+                                                      <Store className="h-3 w-3 text-muted-foreground" />
+                                                      {effectiveShop.name}
+                                                      {effectiveShop.phone && (
+                                                        <span className="text-muted-foreground ml-1">
+                                                          ({effectiveShop.phone})
+                                                        </span>
+                                                      )}
+                                                      {!effectiveShop.isVerified && (
+                                                        <Badge variant="outline" className="ml-1 text-xs text-orange-600 border-orange-300">
+                                                          Pending Approval
+                                                        </Badge>
+                                                      )}
+                                                    </span>
+                                                  </div>
+                                                );
+                                              })()}
 
                                               {/* Verification Checkboxes */}
                                               <div className="mt-3 pt-3 border-t border-dashed">
@@ -629,7 +762,6 @@ export default function PendingAcceptancePage() {
                                                   Handover Verification
                                                 </p>
                                                 <div className="flex flex-wrap gap-4">
-                                                  {/* Warranty Card Received */}
                                                   <div className="flex items-center space-x-2">
                                                     <Checkbox
                                                       id={`warranty-${item.id}`}
@@ -646,7 +778,6 @@ export default function PendingAcceptancePage() {
                                                     </Label>
                                                   </div>
 
-                                                  {/* Item Received */}
                                                   <div className="flex items-center space-x-2">
                                                     <Checkbox
                                                       id={`item-${item.id}`}
@@ -668,45 +799,75 @@ export default function PendingAcceptancePage() {
                                           </div>
 
                                           {/* Actions */}
-                                          <div className="flex items-center gap-2 pl-8 lg:pl-0">
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                              onClick={() => setRejectingItem({ tripId: trip.id, item })}
-                                              disabled={isProcessing}
-                                            >
-                                              <X className="h-4 w-4 mr-1" />
-                                              Reject
-                                            </Button>
-                                            <Button
-                                              size="sm"
-                                              onClick={() => handleReceiveItem(trip.id, item.id)}
-                                              disabled={!canReceiveItem || isProcessing}
-                                              className="min-w-[100px]"
-                                            >
-                                              {isProcessing ? (
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                              ) : (
-                                                <>
-                                                  <Check className="h-4 w-4 mr-1" />
-                                                  Receive
-                                                </>
-                                              )}
-                                            </Button>
-                                          </div>
+                                          {(() => {
+                                            // Check if shop is approved (use effective shop from grouping)
+                                            const effectiveShop = item.shop || trip.shop;
+                                            const isShopNotApproved = effectiveShop ? !effectiveShop.isVerified : false;
+                                            const isDisabled = isProcessing || isShopNotApproved;
+
+                                            return (
+                                              <div className="flex items-center gap-2 pl-8 lg:pl-0">
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                  onClick={() => setRejectingItem({ tripId: trip.id, item })}
+                                                  disabled={isDisabled}
+                                                >
+                                                  <X className="h-4 w-4 mr-1" />
+                                                  Reject
+                                                </Button>
+                                                <Button
+                                                  size="sm"
+                                                  onClick={() => handleReceiveItem(trip.id, item.id)}
+                                                  disabled={!canReceiveItem || isDisabled}
+                                                  className="min-w-[100px]"
+                                                >
+                                                  {isProcessing ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                  ) : (
+                                                    <>
+                                                      <Check className="h-4 w-4 mr-1" />
+                                                      Receive
+                                                    </>
+                                                  )}
+                                                </Button>
+                                              </div>
+                                            );
+                                          })()}
                                         </div>
 
-                                        {/* Warning if can't receive */}
-                                        {!canReceiveItem && (
-                                          <div className="mt-2 pl-8 flex items-center gap-2 text-sm text-orange-600">
-                                            <AlertCircle className="h-4 w-4" />
-                                            {!(item.warrantyCard?.product || item.product)
-                                              ? "Product must be specified to receive this item"
-                                              : "Please verify both checkboxes above before receiving"
-                                            }
-                                          </div>
-                                        )}
+                                        {/* Warning messages */}
+                                        {(() => {
+                                          const effectiveShop = item.shop || trip.shop;
+                                          const isShopNotApproved = effectiveShop && !effectiveShop.isVerified;
+
+                                          if (isShopNotApproved) {
+                                            return (
+                                              <div
+                                                className="mt-2 pl-8 flex items-center gap-2 text-sm text-red-600 cursor-pointer hover:text-red-700 hover:underline"
+                                                onClick={() => router.push("/shops?tab=pending")}
+                                              >
+                                                <Store className="h-4 w-4" />
+                                                Shop &quot;{effectiveShop.name}&quot; is pending approval. Click here to approve.
+                                              </div>
+                                            );
+                                          }
+
+                                          if (!canReceiveItem) {
+                                            return (
+                                              <div className="mt-2 pl-8 flex items-center gap-2 text-sm text-orange-600">
+                                                <AlertCircle className="h-4 w-4" />
+                                                {!(item.warrantyCard?.product || item.product)
+                                                  ? "Product must be specified to receive this item"
+                                                  : "Please verify both checkboxes above before receiving"
+                                                }
+                                              </div>
+                                            );
+                                          }
+
+                                          return null;
+                                        })()}
                                       </div>
                                     );
                                   })}
@@ -722,8 +883,153 @@ export default function PendingAcceptancePage() {
               </Card>
             );
           })}
-        </div>
-      )}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Received Tab */}
+        <TabsContent value="received" className="mt-4">
+          {receivedTrips.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Check className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-lg font-medium">No Received Collections</p>
+                <p className="text-muted-foreground">Received items will appear here.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {receivedTrips.map((trip) => {
+                const shopGroups = groupItemsByShop(trip.items, trip.shop);
+
+                return (
+                  <Card key={trip.id}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-green-100 dark:bg-green-900 rounded-full">
+                            <Check className="h-5 w-5 text-green-600" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-lg">Collection {trip.tripNumber}</CardTitle>
+                            <CardDescription className="flex items-center gap-2">
+                              <User className="h-3 w-3" />
+                              {trip.collector.name}
+                              <span className="text-muted-foreground">•</span>
+                              Received {format(new Date(trip.startedAt), "MMM d, h:mm a")}
+                            </CardDescription>
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="text-green-600 border-green-300">
+                          {trip.items.length} items received
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {shopGroups.map((group) => (
+                          <div key={group.shopKey} className="border rounded-lg p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Store className="h-4 w-4 text-muted-foreground" />
+                              <span className="font-medium">
+                                {group.shop?.name || "Direct Customer"}
+                              </span>
+                              <Badge variant="secondary" className="text-xs">
+                                {group.items.length} items
+                              </Badge>
+                            </div>
+                            <div className="space-y-2 pl-6">
+                              {group.items.map((item) => (
+                                <div key={item.id} className="flex items-center justify-between text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <Package className="h-4 w-4 text-muted-foreground" />
+                                    <span>{item.serialNumber}</span>
+                                    {item.warrantyCard?.product?.name && (
+                                      <span className="text-muted-foreground">
+                                        - {item.warrantyCard.product.name}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {item.claim && (
+                                    <Badge variant="outline">
+                                      {item.claim.claimNumber}
+                                    </Badge>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Rejected Tab */}
+        <TabsContent value="rejected" className="mt-4">
+          {rejectedItems.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <X className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-lg font-medium">No Rejected Items</p>
+                <p className="text-muted-foreground">Rejected items will appear here.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <X className="h-5 w-5 text-red-600" />
+                    Rejected Items ({rejectedItems.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {rejectedItems.map((item) => (
+                      <div key={item.id} className="border rounded-lg p-4 bg-red-50 dark:bg-red-950/20">
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Package className="h-4 w-4 text-red-600" />
+                              <span className="font-medium">{item.serialNumber}</span>
+                              <Badge variant="destructive" className="text-xs">Rejected</Badge>
+                            </div>
+                            {item.warrantyCard?.product?.name && (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground pl-6">
+                                <span>Product: {item.warrantyCard.product.name}</span>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground pl-6">
+                              <span>Issue: {item.issueDescription}</span>
+                            </div>
+                            {item.shop && (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground pl-6">
+                                <Store className="h-3 w-3" />
+                                <span>{item.shop.name}</span>
+                              </div>
+                            )}
+                            {item.notes && (
+                              <div className="flex items-center gap-2 text-sm text-red-600 pl-6">
+                                <AlertCircle className="h-3 w-3" />
+                                <span>Reason: {item.notes}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Reject Dialog */}
       <AlertDialog open={!!rejectingItem} onOpenChange={() => setRejectingItem(null)}>

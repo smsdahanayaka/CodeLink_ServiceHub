@@ -97,6 +97,14 @@ interface TaskClaim {
     firstName: string | null;
     lastName: string | null;
   } | null;
+  // Step status tracking
+  taskType?: "ASSIGNED" | "ACTIVE_SUBTASK" | "STEP_COMPLETION";
+  stepStatus?: string | null;
+  activeSubTask?: {
+    id: number;
+    title: string;
+    status: string;
+  } | null;
 }
 
 interface TaskStats {
@@ -234,6 +242,34 @@ export default function MyTasksPage() {
       URGENT: "bg-red-100 text-red-800",
     };
     return <Badge className={variants[priority] || "bg-gray-100"}>{priority}</Badge>;
+  };
+
+  // Get step status badge
+  const getStepStatusBadge = (status: string | null | undefined) => {
+    if (!status) return null;
+    const variants: Record<string, string> = {
+      NOT_STARTED: "bg-gray-100 text-gray-700",
+      STARTED: "bg-blue-100 text-blue-700",
+      IN_PROGRESS: "bg-cyan-100 text-cyan-700",
+      WAITING_FOR_PARTS: "bg-orange-100 text-orange-700",
+      WAITING_FOR_APPROVAL: "bg-yellow-100 text-yellow-700",
+      ON_HOLD: "bg-red-100 text-red-700",
+      COMPLETED: "bg-green-100 text-green-700",
+    };
+    const labels: Record<string, string> = {
+      NOT_STARTED: "Not Started",
+      STARTED: "Started",
+      IN_PROGRESS: "In Progress",
+      WAITING_FOR_PARTS: "Waiting for Parts",
+      WAITING_FOR_APPROVAL: "Waiting for Approval",
+      ON_HOLD: "On Hold",
+      COMPLETED: "Completed",
+    };
+    return (
+      <Badge className={variants[status] || "bg-gray-100"} variant="secondary">
+        {labels[status] || status}
+      </Badge>
+    );
   };
 
   // Filter tasks by SLA status
@@ -452,11 +488,18 @@ export default function MyTasksPage() {
                     {/* Current Step & SLA */}
                     <div className="lg:w-64 space-y-2">
                       {task.currentStep && (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <Badge variant="secondary" className="font-normal">
                             {task.currentStep.name}
                           </Badge>
+                          {getStepStatusBadge(task.stepStatus)}
                         </div>
+                      )}
+                      {/* Active sub-task indicator */}
+                      {task.activeSubTask && (
+                        <p className="text-xs text-muted-foreground line-clamp-1">
+                          Task: {task.activeSubTask.title}
+                        </p>
                       )}
 
                       {slaStatus && (

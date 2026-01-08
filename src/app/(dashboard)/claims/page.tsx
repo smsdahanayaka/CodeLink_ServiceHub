@@ -6,6 +6,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 import {
   Plus,
   Eye,
@@ -19,6 +20,9 @@ import {
   Inbox,
   Filter,
   RefreshCw,
+  PackageCheck,
+  Store,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -68,12 +72,42 @@ interface Stats {
   inProgress: number;
   completed: number;
   rejected: number;
+  acceptedItems: number;
+}
+
+// Interface for received items from collections
+interface ReceivedItem {
+  id: number;
+  serialNumber: string;
+  issueDescription: string;
+  status: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  shop: {
+    id: number;
+    name: string;
+    phone: string | null;
+  } | null;
+  warrantyCard: {
+    id: number;
+    cardNumber: string;
+    product: { id: number; name: string; modelNumber: string | null } | null;
+    customer: { id: number; name: string; phone: string } | null;
+  } | null;
+  product: { id: number; name: string } | null;
+  claim: { id: number; claimNumber: string } | null;
+  collectionTrip: {
+    id: number;
+    tripNumber: string;
+  };
 }
 
 export default function ClaimsPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("new");
+  const { hasPermission } = usePermissions();
+  const [activeTab, setActiveTab] = useState("accepted");
   const [claims, setClaims] = useState<Claim[]>([]);
+  const [receivedItems, setReceivedItems] = useState<ReceivedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -83,6 +117,7 @@ export default function ClaimsPage() {
     inProgress: 0,
     completed: 0,
     rejected: 0,
+    acceptedItems: 0,
   });
 
   // Fetch claims based on tab
@@ -144,21 +179,61 @@ export default function ClaimsPage() {
         rejectedRes.json(),
       ]);
 
-      setStats({
+      setStats(prev => ({
+        ...prev,
         newClaims: newData.meta?.total || 0,
         inProgress: progressData.meta?.total || 0,
         completed: completedData.meta?.total || 0,
         rejected: rejectedData.meta?.total || 0,
-      });
+      }));
     } catch (error) {
       console.error("Error fetching stats:", error);
+    }
+  };
+
+  // Fetch received items from collections
+  const fetchReceivedItems = async () => {
+    try {
+      // Fetch received collection trips and get all items
+      const res = await fetch("/api/logistics/collection-trips?status=RECEIVED&limit=50");
+
+      // Silently skip if user doesn't have logistics permissions (403)
+      if (!res.ok) {
+        return;
+      }
+
+      const result = await res.json();
+
+      if (result.success) {
+        const items: ReceivedItem[] = [];
+        result.data.forEach((trip: { id: number; tripNumber: string; items: ReceivedItem[] }) => {
+          trip.items.forEach((item: ReceivedItem) => {
+            // Include all received items (RECEIVED or PROCESSED status)
+            if (["RECEIVED", "PROCESSED"].includes(item.status)) {
+              items.push({
+                ...item,
+                collectionTrip: { id: trip.id, tripNumber: trip.tripNumber },
+              });
+            }
+          });
+        });
+        setReceivedItems(items);
+        setStats(prev => ({ ...prev, acceptedItems: items.length }));
+      }
+    } catch {
+      // Silently ignore errors - user may not have logistics permission
+      // or service worker may reject the request
     }
   };
 
   useEffect(() => {
     fetchClaims();
     fetchStats();
-  }, [fetchClaims]);
+    // Only fetch received items if user has logistics.view permission
+    if (hasPermission("logistics.view")) {
+      fetchReceivedItems();
+    }
+  }, [fetchClaims, hasPermission]);
 
   // Get priority badge
   const getPriorityBadge = (priority: string) => {
@@ -363,6 +438,9 @@ export default function ClaimsPage() {
               onClick={() => {
                 fetchClaims(true);
                 fetchStats();
+                if (hasPermission("logistics.view")) {
+                  fetchReceivedItems();
+                }
               }}
               disabled={refreshing}
             >
@@ -378,7 +456,23 @@ export default function ClaimsPage() {
       />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Card
+          className={`cursor-pointer transition-all ${activeTab === "accepted" ? "ring-2 ring-primary" : "hover:shadow-md"} ${stats.acceptedItems > 0 ? "ring-2 ring-purple-500" : ""}`}
+          onClick={() => setActiveTab("accepted")}
+        >
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-purple-100 dark:bg-purple-900 rounded-full">
+                <PackageCheck className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{stats.acceptedItems}</p>
+                <p className="text-sm text-muted-foreground">Accepted Items</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
         <Card
           className={`cursor-pointer transition-all ${activeTab === "new" ? "ring-2 ring-primary" : "hover:shadow-md"}`}
           onClick={() => setActiveTab("new")}
@@ -447,6 +541,15 @@ export default function ClaimsPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="accepted" className="flex items-center gap-2">
+            <PackageCheck className="h-4 w-4" />
+            Accepted
+            {stats.acceptedItems > 0 && (
+              <Badge variant="secondary" className="ml-1 bg-purple-100 text-purple-800">
+                {stats.acceptedItems}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="new" className="flex items-center gap-2">
             <Inbox className="h-4 w-4" />
             New
@@ -474,6 +577,88 @@ export default function ClaimsPage() {
             All Claims
           </TabsTrigger>
         </TabsList>
+
+        {/* Accepted Items Tab */}
+        <TabsContent value="accepted" className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg p-3">
+            <PackageCheck className="h-4 w-4 text-purple-600" />
+            <span>
+              Items received from collections. Click to view claim or create a new claim.
+            </span>
+          </div>
+
+          {receivedItems.length === 0 ? (
+            <div className="text-center py-12">
+              <PackageCheck className="mx-auto h-12 w-12 text-muted-foreground/50" />
+              <p className="mt-2 font-medium">No received items</p>
+              <p className="text-sm text-muted-foreground">
+                Received items from collections will appear here
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {receivedItems.map((item) => (
+                <Card
+                  key={item.id}
+                  className={`cursor-pointer hover:shadow-md transition-shadow ${item.claim ? "border-green-200 dark:border-green-800" : "border-purple-200 dark:border-purple-800"}`}
+                  onClick={() => {
+                    if (item.claim) {
+                      router.push(`/claims/${item.claim.id}`);
+                    } else {
+                      router.push(`/claims/new?itemId=${item.id}&tripId=${item.collectionTrip.id}`);
+                    }
+                  }}
+                >
+                  <CardContent className="p-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
+                          {item.collectionTrip.tripNumber}
+                        </Badge>
+                        {item.claim ? (
+                          <Badge className="bg-green-100 text-green-800">
+                            {item.claim.claimNumber}
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">No Claim</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{item.serialNumber}</span>
+                      </div>
+                      {(item.warrantyCard?.product?.name || item.product?.name) && (
+                        <div className="text-sm text-muted-foreground">
+                          {item.warrantyCard?.product?.name || item.product?.name}
+                        </div>
+                      )}
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {item.issueDescription}
+                      </p>
+                      {item.shop && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Store className="h-3 w-3" />
+                          {item.shop.name}
+                        </div>
+                      )}
+                      {item.claim ? (
+                        <Button size="sm" variant="outline" className="w-full mt-2">
+                          <Eye className="h-4 w-4 mr-1" />
+                          View Claim
+                        </Button>
+                      ) : (
+                        <Button size="sm" className="w-full mt-2">
+                          <Plus className="h-4 w-4 mr-1" />
+                          Create Claim
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
 
         {/* New Claims Tab */}
         <TabsContent value="new" className="space-y-4">

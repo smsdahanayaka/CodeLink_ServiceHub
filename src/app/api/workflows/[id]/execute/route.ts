@@ -325,63 +325,84 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             assignedUserId: validatedData.nextAssignedUserId,
             assignedBy: user.id,
             isActive: true,
+            stepStatus: "NOT_STARTED",
+            stepStartedAt: null,
+            stepCompletedAt: null,
           },
           create: {
             claimId: claim.id,
             workflowStepId: nextStep.id,
             assignedUserId: validatedData.nextAssignedUserId,
             assignedBy: user.id,
+            stepStatus: "NOT_STARTED",
           },
         });
       } else {
-        // No assignment found - check if we require next user selection
-        // Get the full next step to check requireNextUserSelection flag
-        const fullNextStep = await prisma.workflowStep.findUnique({
-          where: { id: nextStep.id },
-          select: { requireNextUserSelection: true },
-        });
-
-        if (fullNextStep?.requireNextUserSelection !== false) {
-          // Get eligible users for the next step
-          const eligibleUsers = await prisma.user.findMany({
-            where: {
-              tenantId: user.tenantId,
-              status: "ACTIVE",
-              ...(nextStep.requiredRoleId ? { roleId: nextStep.requiredRoleId } : {}),
-            },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              role: { select: { name: true } },
-            },
-            take: 10,
-          });
-
-          return errorResponse(
-            "Please select the user who will handle the next step",
-            "NEXT_USER_REQUIRED",
-            400,
-            {
-              nextStep: {
-                id: nextStep.id,
-                name: nextStep.name,
-                statusName: nextStep.statusName,
-              },
-              suggestedUsers: eligibleUsers.map((u) => ({
-                id: u.id,
-                firstName: u.firstName,
-                lastName: u.lastName,
-                roleName: u.role.name,
-              })),
-            }
-          );
-        }
+        // No assignment found - next user selection is OPTIONAL
+        // Step can complete without assigning next user
+        // The next step will remain unassigned until someone assigns it
+        nextStepAssignee = null;
       }
     }
 
+    // REMOVED: The mandatory next user selection block
+    // Next user assignment is now optional - step can complete without it
+    // Keeping this comment block for reference:
+    /*
+    // If you want to make it mandatory again, uncomment this block:
+    if (nextStep && nextStep.stepType !== "END" && !nextStepAssignee) {
+      const eligibleUsers = await prisma.user.findMany({
+        where: {
+          tenantId: user.tenantId,
+          status: "ACTIVE",
+          ...(nextStep.requiredRoleId ? { roleId: nextStep.requiredRoleId } : {}),
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          role: { select: { name: true } },
+        },
+        take: 10,
+      });
+
+      return errorResponse(
+        "Please select the user who will handle the next step",
+        "NEXT_USER_REQUIRED",
+        400,
+        {
+          nextStep: {
+            id: nextStep.id,
+            name: nextStep.name,
+            statusName: nextStep.statusName,
+          },
+          suggestedUsers: eligibleUsers.map((u) => ({
+            id: u.id,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            roleName: u.role.name,
+          })),
+        }
+      );
+    }
+    */
+
     // Perform the execution in a transaction
     const result = await prisma.$transaction(async (tx) => {
+      // Mark current step assignment as completed
+      if (currentStep && (validatedData.action === "complete" || validatedData.action === "skip")) {
+        await tx.claimStepAssignment.updateMany({
+          where: {
+            claimId: claim.id,
+            workflowStepId: currentStep.id,
+          },
+          data: {
+            stepStatus: "COMPLETED",
+            stepCompletedAt: new Date(),
+          },
+        });
+      }
+
       // Record history
       await tx.claimHistory.create({
         data: {
@@ -555,6 +576,23 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Check if claim already has a different workflow (allow re-assignment)
     const isWorkflowChange = claim.workflowId && claim.workflowId !== workflowId;
 
+    // If changing workflow, verify claim is still at START step
+    // Once workflow has started (moved past START step), it cannot be changed
+    if (isWorkflowChange && claim.currentStepId) {
+      const currentStep = await prisma.workflowStep.findUnique({
+        where: { id: claim.currentStepId },
+        select: { stepType: true, name: true },
+      });
+
+      if (currentStep && currentStep.stepType !== "START") {
+        return errorResponse(
+          "Cannot change workflow after it has started. The claim has already progressed beyond the initial step.",
+          "WORKFLOW_ALREADY_STARTED",
+          400
+        );
+      }
+    }
+
     // Get the first step (START type)
     const startStep = workflow.steps[0];
     if (!startStep) {
@@ -568,12 +606,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Assign workflow and set first step
     const updatedClaim = await prisma.$transaction(async (tx) => {
       // Record history
+      // Keep status as "new" when at START step
+      const newStatus = startStep.stepType === "START" ? "new" : startStep.statusName;
       await tx.claimHistory.create({
         data: {
           claimId: claim.id,
           workflowStepId: startStep.id,
           fromStatus: claim.currentStatus,
-          toStatus: startStep.statusName,
+          toStatus: newStatus,
           actionType: isWorkflowChange ? "workflow_changed" : "workflow_assigned",
           performedBy: user.id,
           notes: isWorkflowChange
@@ -588,13 +628,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       });
 
       // Update claim
+      // Keep status as "new" when at START step so it appears in New Claims tab
       return tx.warrantyClaim.update({
         where: { id: claim.id },
         data: {
           workflowId: workflow.id,
           currentStepId: startStep.id,
           currentStepStartedAt: new Date(),
-          currentStatus: startStep.statusName,
+          currentStatus: startStep.stepType === "START" ? "new" : startStep.statusName,
           resolvedAt: null, // Reset resolved status when changing workflow
           ...(startStep.autoAssignTo && { assignedTo: startStep.autoAssignTo }),
         },

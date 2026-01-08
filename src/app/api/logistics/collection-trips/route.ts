@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
           select: { id: true, name: true, phone: true, vehicleNumber: true },
         },
         shop: {
-          select: { id: true, name: true, address: true, phone: true },
+          select: { id: true, name: true, address: true, phone: true, isVerified: true },
         },
         receiverUser: {
           select: { id: true, firstName: true, lastName: true },
@@ -142,6 +142,10 @@ export async function GET(request: NextRequest) {
             customerName: true,
             customerPhone: true,
             notes: true,
+            shopId: true,
+            shop: {
+              select: { id: true, name: true, address: true, phone: true, isVerified: true },
+            },
             warrantyCard: {
               select: {
                 id: true,
@@ -207,18 +211,18 @@ export async function POST(request: NextRequest) {
 
     // Validate based on fromType
     if (validatedData.fromType === "SHOP") {
-      if (!validatedData.shopId) {
-        return errorResponse("Shop is required for shop collection", "SHOP_REQUIRED", 400);
-      }
-      // Verify shop exists
-      const shop = await prisma.shop.findFirst({
-        where: {
-          id: validatedData.shopId,
-          tenantId: user.tenantId,
-        },
-      });
-      if (!shop) {
-        return errorResponse("Shop not found", "SHOP_NOT_FOUND", 400);
+      // Shop is optional - can be assigned per-item when adding items
+      if (validatedData.shopId) {
+        // Verify shop exists if provided
+        const shop = await prisma.shop.findFirst({
+          where: {
+            id: validatedData.shopId,
+            tenantId: user.tenantId,
+          },
+        });
+        if (!shop) {
+          return errorResponse("Shop not found", "SHOP_NOT_FOUND", 400);
+        }
       }
     } else {
       // CUSTOMER type - require customer details

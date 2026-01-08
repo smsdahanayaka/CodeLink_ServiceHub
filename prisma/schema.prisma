@@ -472,8 +472,14 @@ model ClaimStepAssignment {
   assignedBy     Int
   notes          String?  @db.Text
   isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+
+  // Step status tracking (detailed status for workflow)
+  stepStatus      StepStatus @default(NOT_STARTED)
+  stepStartedAt   DateTime?
+  stepCompletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   claim          WarrantyClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
@@ -528,6 +534,17 @@ enum SubTaskPriority {
   LOW
   MEDIUM
   HIGH
+}
+
+// Step Status for ClaimStepAssignment (detailed tracking)
+enum StepStatus {
+  NOT_STARTED
+  STARTED
+  IN_PROGRESS
+  WAITING_FOR_PARTS
+  WAITING_FOR_APPROVAL
+  ON_HOLD
+  COMPLETED
 }
 
 // Claim History (Audit Trail)

@@ -754,141 +754,143 @@ export default function DeliveriesPage() {
 
       {/* Create Delivery Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] max-w-md flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Schedule Delivery</DialogTitle>
             <DialogDescription>
               Create a new delivery for a warranty claim
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="claimId">Claim *</Label>
-              <Select
-                value={createData.claimId}
-                onValueChange={(value) =>
-                  setCreateData({ ...createData, claimId: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a claim" />
-                </SelectTrigger>
-                <SelectContent>
-                  {claims.map((claim) => (
-                    <SelectItem key={claim.id} value={claim.id.toString()}>
-                      {claim.claimNumber} -{" "}
-                      {claim.warrantyCard.product.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="collectorId">Collector</Label>
-              <Select
-                value={createData.collectorId}
-                onValueChange={(value) =>
-                  setCreateData({ ...createData, collectorId: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Assign later" />
-                </SelectTrigger>
-                <SelectContent>
-                  {collectors.map((c) => (
-                    <SelectItem key={c.id} value={c.id.toString()}>
-                      {c.name} - {c.phone}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="fromLocation">From Location</Label>
-              <Input
-                id="fromLocation"
-                value={createData.fromLocation}
-                onChange={(e) =>
-                  setCreateData({ ...createData, fromLocation: e.target.value })
-                }
-                placeholder="Service Center"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="toType">Deliver To</Label>
-              <Select
-                value={createData.toType}
-                onValueChange={(value) =>
-                  setCreateData({
-                    ...createData,
-                    toType: value as "SHOP" | "CUSTOMER",
-                  })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="SHOP">Shop</SelectItem>
-                  <SelectItem value="CUSTOMER">Customer</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleCreate} className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex-1 space-y-4 overflow-y-auto px-1 py-2">
               <div className="space-y-2">
-                <Label htmlFor="scheduledDate">Scheduled Date</Label>
-                <Input
-                  id="scheduledDate"
-                  type="date"
-                  value={createData.scheduledDate}
-                  onChange={(e) =>
-                    setCreateData({
-                      ...createData,
-                      scheduledDate: e.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="scheduledTimeSlot">Time Slot</Label>
+                <Label htmlFor="claimId">Claim *</Label>
                 <Select
-                  value={createData.scheduledTimeSlot}
+                  value={createData.claimId}
                   onValueChange={(value) =>
-                    setCreateData({ ...createData, scheduledTimeSlot: value })
+                    setCreateData({ ...createData, claimId: value })
                   }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select time" />
+                    <SelectValue placeholder="Select a claim" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="09:00-12:00">09:00 - 12:00</SelectItem>
-                    <SelectItem value="12:00-15:00">12:00 - 15:00</SelectItem>
-                    <SelectItem value="15:00-18:00">15:00 - 18:00</SelectItem>
-                    <SelectItem value="18:00-21:00">18:00 - 21:00</SelectItem>
+                    {claims.map((claim) => (
+                      <SelectItem key={claim.id} value={claim.id.toString()}>
+                        {claim.claimNumber} -{" "}
+                        {claim.warrantyCard.product.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="collectorId">Collector</Label>
+                <Select
+                  value={createData.collectorId}
+                  onValueChange={(value) =>
+                    setCreateData({ ...createData, collectorId: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Assign later" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {collectors.map((c) => (
+                      <SelectItem key={c.id} value={c.id.toString()}>
+                        {c.name} - {c.phone}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="fromLocation">From Location</Label>
+                <Input
+                  id="fromLocation"
+                  value={createData.fromLocation}
+                  onChange={(e) =>
+                    setCreateData({ ...createData, fromLocation: e.target.value })
+                  }
+                  placeholder="Service Center"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="toType">Deliver To</Label>
+                <Select
+                  value={createData.toType}
+                  onValueChange={(value) =>
+                    setCreateData({
+                      ...createData,
+                      toType: value as "SHOP" | "CUSTOMER",
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SHOP">Shop</SelectItem>
+                    <SelectItem value="CUSTOMER">Customer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="scheduledDate">Scheduled Date</Label>
+                  <Input
+                    id="scheduledDate"
+                    type="date"
+                    value={createData.scheduledDate}
+                    onChange={(e) =>
+                      setCreateData({
+                        ...createData,
+                        scheduledDate: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="scheduledTimeSlot">Time Slot</Label>
+                  <Select
+                    value={createData.scheduledTimeSlot}
+                    onValueChange={(value) =>
+                      setCreateData({ ...createData, scheduledTimeSlot: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="09:00-12:00">09:00 - 12:00</SelectItem>
+                      <SelectItem value="12:00-15:00">12:00 - 15:00</SelectItem>
+                      <SelectItem value="15:00-18:00">15:00 - 18:00</SelectItem>
+                      <SelectItem value="18:00-21:00">18:00 - 21:00</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="notes">Notes</Label>
+                <Textarea
+                  id="notes"
+                  value={createData.notes}
+                  onChange={(e) =>
+                    setCreateData({ ...createData, notes: e.target.value })
+                  }
+                  placeholder="Any special instructions..."
+                  rows={3}
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                value={createData.notes}
-                onChange={(e) =>
-                  setCreateData({ ...createData, notes: e.target.value })
-                }
-                placeholder="Any special instructions..."
-                rows={3}
-              />
-            </div>
-
-            <DialogFooter>
+            <DialogFooter className="flex-shrink-0 border-t pt-4">
               <Button
                 type="button"
                 variant="outline"

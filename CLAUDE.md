@@ -60,18 +60,27 @@ src/
 │   │   ├── categories/
 │   │   ├── inventory/
 │   │   ├── shops/
+│   │   │   └── [id]/approve/        # Shop approval endpoint
 │   │   ├── customers/
 │   │   ├── warranty-cards/
 │   │   ├── claims/
 │   │   │   ├── route.ts           # List/create claims
-│   │   │   ├── [id]/route.ts      # Claim CRUD
+│   │   │   ├── [id]/route.ts      # Claim CRUD (includes _userContext)
 │   │   │   ├── [id]/accept/route.ts        # Accept/reject claim
 │   │   │   ├── [id]/update-pending/route.ts # Update pending claim
+│   │   │   ├── [id]/step-status/route.ts   # Step status GET/PATCH
 │   │   │   ├── [id]/quotation/route.ts     # Quotation management
 │   │   │   ├── [id]/invoice/route.ts       # Invoice management
 │   │   │   ├── [id]/parts/route.ts         # Claim parts
+│   │   │   ├── [id]/sub-tasks/             # Sub-task management
+│   │   │   │   ├── route.ts                # List/create sub-tasks
+│   │   │   │   └── [taskId]/
+│   │   │   │       ├── route.ts            # Sub-task CRUD
+│   │   │   │       └── complete/route.ts   # Complete sub-task
 │   │   │   ├── pending-acceptance/route.ts # Grouped pending claims
 │   │   │   └── bulk/route.ts      # Bulk operations
+│   │   ├── my-tasks/
+│   │   │   └── route.ts           # User's assigned tasks (sequential filtering)
 │   │   ├── workflows/
 │   │   │   ├── [id]/execute/route.ts       # Execute/rollback steps
 │   │   │   └── steps/[stepId]/eligible-users/route.ts
@@ -92,12 +101,21 @@ src/
 │   ├── layout/                    # Layout components (Sidebar, Header)
 │   ├── tables/                    # Data table components
 │   ├── claims/                    # Claim-specific components
+│   │   ├── step-status-dropdown.tsx    # Step status update dropdown
+│   │   ├── assignee-claim-view.tsx     # Restricted view for step assignees
+│   │   ├── sub-task-list.tsx           # Sub-task management (supports onSubTaskStatusChange callback)
+│   │   ├── sub-task-form-dialog.tsx    # Sub-task create/edit dialog
+│   │   ├── next-user-selection-modal.tsx # Next user selection for step completion
+│   │   ├── step-assignment-mapper.tsx  # Step assignment visualization
+│   │   ├── workflow-visualization.tsx  # Workflow tree view with steps, sub-tasks, and assignees
+│   │   └── claim-finalization-section.tsx # Claim completion section
 │   └── dashboard/                 # Dashboard widgets
 ├── lib/
 │   ├── auth.ts                    # NextAuth configuration
 │   ├── prisma.ts                  # Prisma client
 │   ├── api-utils.ts               # API helper functions
 │   ├── utils.ts                   # General utilities
+│   ├── sub-task-utils.ts          # Sequential sub-task workflow utilities
 │   ├── constants/
 │   │   ├── index.ts               # App constants
 │   │   └── permissions.ts         # Permission definitions
@@ -149,7 +167,7 @@ const hasAccess = await checkPermission("claims.view");
 | `Role` | Permission-based roles |
 | `Product` / `ProductCategory` | Product catalog |
 | `InventoryItem` / `InventoryCategory` | Parts/components inventory |
-| `Shop` | Dealers/shops |
+| `Shop` | Dealers/shops (includes `isVerified` for approval workflow) |
 | `Customer` | End customers |
 
 ### Warranty & Claims Tables
@@ -200,6 +218,29 @@ const hasAccess = await checkPermission("claims.view");
 | `CollectionItemStatus` | `COLLECTED`, `RECEIVED`, `PROCESSED`, `REJECTED` | Item status in collection |
 | `QuotationStatus` | `DRAFT`, `SENT`, `VIEWED`, `APPROVED`, `REJECTED`, `EXPIRED`, `CONVERTED` | Quotation lifecycle |
 | `InvoiceStatus` | `DRAFT`, `GENERATED`, `SENT`, `PAID`, `PARTIALLY_PAID`, `CANCELLED` | Invoice lifecycle |
+| `StepStatus` | `NOT_STARTED`, `STARTED`, `IN_PROGRESS`, `WAITING_FOR_PARTS`, `WAITING_FOR_APPROVAL`, `ON_HOLD`, `COMPLETED` | Detailed step status tracking |
+
+### ClaimStepAssignment Model
+
+Tracks per-claim user assignments for workflow steps with detailed status tracking.
+
+```prisma
+model ClaimStepAssignment {
+  id              Int         @id @default(autoincrement())
+  claimId         Int
+  workflowStepId  Int
+  assignedUserId  Int
+  assignedBy      Int
+  isActive        Boolean     @default(true)
+
+  // Step status tracking (detailed status for workflow)
+  stepStatus      StepStatus  @default(NOT_STARTED)
+  stepStartedAt   DateTime?   // Set on first status change from NOT_STARTED
+  stepCompletedAt DateTime?   // Set when step is completed
+
+  @@unique([claimId, workflowStepId])
+}
+```
 
 ### Claim Model Key Fields
 
@@ -269,7 +310,7 @@ Permissions are stored as string arrays in the `Role.permissions` JSON field.
 | `roles.view/create/edit/delete` | Role management |
 | `products.view/create/edit/delete` | Product management |
 | `inventory.view/create/edit/delete/adjust_stock` | Inventory management |
-| `shops.view/create/edit/delete` | Shop management |
+| `shops.view/create/edit/delete/approve` | Shop management |
 | `customers.view/create/edit/delete` | Customer management |
 | `warranty_cards.view/create/edit/void` | Warranty management |
 | `claims.view/view_all/view_assigned/create/edit/process/assign/close` | Claim management |
@@ -482,9 +523,11 @@ const result = await prisma.$transaction(async (tx) => {
 |----------|--------|-------------|
 | `/api/claims` | GET | List claims (filters: status, assignedTo, search) |
 | `/api/claims` | POST | Create new claim |
-| `/api/claims/[id]` | GET/PUT/DELETE | Claim CRUD |
+| `/api/claims/[id]` | GET/PUT/DELETE | Claim CRUD (GET includes `_userContext` for dual view) |
 | `/api/claims/[id]/accept` | POST | Accept or reject pending claim |
 | `/api/claims/[id]/update-pending` | PUT | Update pending claim details before acceptance |
+| `/api/claims/[id]/step-status` | GET/PATCH | Get/update current step status (see Step Status API below) |
+| `/api/claims/[id]/workflow-progress` | GET | Get workflow progress with all steps, sub-tasks, and assignees |
 | `/api/claims/pending-acceptance` | GET | Get pending claims grouped by Collector → Shop |
 | `/api/claims/[id]/quotation` | GET/POST/PUT | Quotation management |
 | `/api/claims/[id]/invoice` | GET/POST/PUT | Invoice management |
@@ -498,7 +541,7 @@ const result = await prisma.$transaction(async (tx) => {
 | `/api/logistics/pickups` | GET/POST | List/create pickups |
 | `/api/logistics/pickups/[id]` | GET/PUT/DELETE | Pickup CRUD |
 | `/api/logistics/pickups/[id]` | PATCH | Status changes (assign, start, complete, reject) |
-| `/api/logistics/collection-trips` | GET/POST | List/create collection trips |
+| `/api/logistics/collection-trips` | GET/POST | List/create trips (filters: myTrips, collectorId, shopId, status, fromDate, toDate) |
 | `/api/logistics/collection-trips/[id]` | GET/PATCH | Trip details/status |
 | `/api/logistics/collection-trips/[id]/items` | GET/POST | Manage trip items |
 | `/api/logistics/collection-trips/[id]/items/[itemId]/receive` | POST | Receive single item → creates claim |
@@ -517,9 +560,20 @@ const result = await prisma.$transaction(async (tx) => {
 |----------|--------|-------------|
 | `/api/workflows` | GET/POST | List/create workflows |
 | `/api/workflows/[id]` | GET/PUT/DELETE | Workflow CRUD |
-| `/api/workflows/[id]/execute` | POST | Execute workflow step transition |
+| `/api/workflows/[id]/execute` | POST | Execute workflow step transition (`nextAssignedUserId` is optional) |
 | `/api/workflows/[id]/execute` | PATCH | Rollback to previous step |
 | `/api/workflows/steps/[stepId]/eligible-users` | GET | Get users eligible for step assignment |
+
+**Note:** Next user selection (`nextAssignedUserId`) is now **optional** during step completion. Steps can be completed without assigning the next user - assignment can be done later.
+
+### Shops
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/shops` | GET | List shops (filters: search, isVerified) |
+| `/api/shops` | POST | Create new shop |
+| `/api/shops/[id]` | GET/PUT/DELETE | Shop CRUD |
+| `/api/shops/[id]/approve` | POST | Approve/verify pending shop (requires `shops.edit` or `shops.approve`) |
 
 ### Other
 
@@ -537,10 +591,317 @@ const result = await prisma.$transaction(async (tx) => {
 - **Step Types**: START, ACTION, DECISION, NOTIFICATION, WAIT, END
 - **Transitions**: ALWAYS (auto), USER_CHOICE (manual), CONDITIONAL (rule-based)
 - **SLA Tracking**: Per-step time limits with escalation
-- **Auto-assignment**: Rule-based user assignment
-- **Sub-tasks**: Checklist items within steps (must complete before step transition)
+- **Optional User Selection**: Next user selection is optional when completing steps (can assign later)
+- **Step Status Tracking**: Detailed status per step (NOT_STARTED, STARTED, IN_PROGRESS, WAITING_FOR_PARTS, etc.)
+- **Sub-tasks**: Sequential checklist items within steps (see Sequential Sub-Task Workflow below)
+- **Sub-task Blocking**: Process Step button disabled until all sub-tasks are complete
 - **Notifications**: SMS/Email on ON_ENTER, ON_EXIT, escalation events
 - **Rollback**: Return to previous steps (with permission check)
+- **Dual View System**: Admin vs Assignee views in claim detail page
+- **Workflow Visualization**: Tree view showing all steps, sub-tasks, assignees, and status
+- **Change Workflow Lock**: Cannot change workflow after it has started (past START step)
+
+#### Step Status API
+
+Update the detailed status of a workflow step (only assigned user or admin can update).
+
+**Endpoint**: `PATCH /api/claims/[id]/step-status`
+
+```json
+// Request
+{
+  "stepStatus": "IN_PROGRESS",  // or "STARTED", "WAITING_FOR_PARTS", etc.
+  "notes": "Optional note about the status change"
+}
+
+// Response
+{
+  "success": true,
+  "data": {
+    "stepAssignment": {
+      "stepStatus": "IN_PROGRESS",
+      "stepStartedAt": "2024-01-15T10:30:00Z",
+      "assignedUser": { "id": 1, "firstName": "John", "lastName": "Doe" },
+      "workflowStep": { "id": 5, "name": "Diagnosis", "statusName": "In Diagnosis" }
+    },
+    "message": "Step status updated to IN_PROGRESS"
+  }
+}
+```
+
+**Valid Status Values:**
+| Status | Color | Description |
+|--------|-------|-------------|
+| `NOT_STARTED` | Gray | Just assigned, hasn't begun |
+| `STARTED` | Blue | User acknowledged, beginning work |
+| `IN_PROGRESS` | Cyan | Actively working |
+| `WAITING_FOR_PARTS` | Orange | Blocked on parts |
+| `WAITING_FOR_APPROVAL` | Yellow | Needs approval |
+| `ON_HOLD` | Red | Temporarily paused |
+| `COMPLETED` | Green | Done (set by system when step is completed) |
+
+#### Dual View System (Claim Detail Page)
+
+The claim detail page (`/claims/[id]`) renders different views based on user context:
+
+```typescript
+// API Response includes _userContext:
+{
+  ...claim,
+  _userContext: {
+    isAdmin: boolean,           // Has claims.view_all
+    isStepAssignee: boolean,    // Assigned to current step
+    canEdit: boolean,           // Can edit diagnosis/notes
+    canProcessStep: boolean,    // Can complete step
+    canAddSubTasks: boolean,    // Admin only
+    canAssignWorkflow: boolean, // Admin or claims.assign
+    canRollback: boolean,       // Admin or claims.escalate
+  }
+}
+```
+
+**View Rendering Logic:**
+```
+if (isAdmin) → Full Admin View (control room)
+else if (isStepAssignee) → AssigneeClaimView (restricted)
+else → Read-only view
+```
+
+**Admin View Features:**
+- Full workflow controls (assign, change workflow)
+- Add/manage all sub-tasks
+- Process step with next user selection
+- View complete history
+- Rollback option
+- Update any field
+
+**Assignee View Features:**
+- Step status dropdown (update their status)
+- Their sub-tasks only (sequential)
+- Edit diagnosis, notes, resolution
+- Process Step button (when sub-tasks done)
+- History summary (collapsible)
+- Product, customer, shop info (read-only)
+
+#### Workflow Visualization Component
+
+Displays workflow progress as a tree view in the claim detail sidebar.
+
+**Component:** `WorkflowVisualization` (`src/components/claims/workflow-visualization.tsx`)
+
+**Features:**
+- Shows all workflow steps in order with connector lines
+- Each step displays: name, status badge, assigned user, start time
+- Sub-tasks shown as expandable list under each step
+- Color-coded status indicators (green=completed, blue=current, gray=pending)
+- Auto-expands current step and steps with sub-tasks
+- Click to expand/collapse step details
+
+**Props:**
+```typescript
+interface WorkflowVisualizationProps {
+  claimId: number;
+  workflowId: number;
+  workflowName: string;
+  currentStepId: number | null;
+}
+```
+
+**API Endpoint:** `GET /api/claims/[id]/workflow-progress`
+```json
+// Response
+{
+  "success": true,
+  "data": {
+    "workflow": { "id": 1, "name": "Standard Warranty Process" },
+    "currentStepId": 5,
+    "steps": [
+      {
+        "id": 1,
+        "name": "Receive",
+        "statusName": "Received",
+        "stepType": "START",
+        "stepOrder": 1,
+        "isCompleted": true,
+        "isCurrent": false,
+        "assignment": {
+          "assignedUser": { "id": 1, "firstName": "John", "lastName": "Doe" },
+          "stepStatus": "COMPLETED",
+          "stepStartedAt": "2024-01-15T10:00:00Z",
+          "stepCompletedAt": "2024-01-15T10:30:00Z"
+        },
+        "subTasks": []
+      },
+      {
+        "id": 5,
+        "name": "Diagnosis",
+        "statusName": "In Diagnosis",
+        "stepType": "ACTION",
+        "stepOrder": 2,
+        "isCompleted": false,
+        "isCurrent": true,
+        "assignment": {
+          "assignedUser": { "id": 2, "firstName": "Jane", "lastName": "Smith" },
+          "stepStatus": "IN_PROGRESS",
+          "stepStartedAt": "2024-01-15T10:35:00Z",
+          "stepCompletedAt": null
+        },
+        "subTasks": [
+          {
+            "id": 1,
+            "title": "Visual Inspection",
+            "status": "COMPLETED",
+            "priority": "HIGH",
+            "assignedUser": { "id": 3, "firstName": "Bob", "lastName": "Wilson" }
+          },
+          {
+            "id": 2,
+            "title": "Functional Test",
+            "status": "IN_PROGRESS",
+            "priority": "MEDIUM",
+            "assignedUser": { "id": 2, "firstName": "Jane", "lastName": "Smith" }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### Process Step Dialog
+
+The Process Step dialog shows next step info and allows optional user assignment.
+
+**Features:**
+- Shows current step info (name, type, status)
+- Form fields for required step data
+- Transition selection (for USER_CHOICE transitions)
+- **Next Step Info**: Shows name and status of the upcoming step
+- **Optional User Assignment**: Dropdown to assign next step user (can skip)
+- Notes field for step completion notes
+
+**UI Flow:**
+```
+Click "Process Step" button
+    ↓
+Dialog opens with:
+├── Current step info
+├── Form fields (if any)
+├── Transition selection (if multiple)
+├── Next step info box (blue highlight)
+├── User assignment dropdown (optional)
+└── Notes field
+    ↓
+Click "Complete Step"
+    ↓
+Step completes, next step activates
+```
+
+**Button States:**
+- **Disabled**: When there are incomplete sub-tasks (tooltip: "Complete all sub-tasks first")
+- **Enabled**: When all sub-tasks are complete or no sub-tasks exist
+
+#### Change Workflow Lock
+
+The "Change Workflow" button is disabled after the workflow has started.
+
+**Logic:**
+- **Enabled**: When current step is START type
+- **Disabled**: When current step is past START (ACTION, DECISION, END, etc.)
+
+**Tooltip when disabled:** "Cannot change workflow after it has started"
+
+### 1.1. Sequential Sub-Task Workflow
+
+Sub-tasks within a workflow step execute **one-by-one in order** (by `sortOrder`). This ensures controlled task handoffs and proper notification flow.
+
+**Flow Diagram:**
+```
+Step starts
+    ↓
+First sub-task created → Auto IN_PROGRESS → Notify assignee
+    ↓
+User completes sub-task
+    ↓
+Next sub-task exists?
+    YES → Set to IN_PROGRESS → Notify next assignee
+    NO → All done → Notify step assignee
+    ↓
+Step assignee manually completes step → Workflow advances
+    ↓
+Next workflow step → Repeat
+```
+
+**Key Behaviors:**
+- **Sequential execution**: Only the active sub-task (first PENDING/IN_PROGRESS by `sortOrder`) is shown to its assignee
+- **Auto-activation**: First sub-task created is automatically set to IN_PROGRESS
+- **Automatic progression**: Completing a sub-task activates the next one in sequence
+- **Step completion**: Step assignee manually advances workflow after all sub-tasks are done
+- **Visibility control**: Managers with `claims.view_all` can see all sub-tasks; assignees only see their active task
+
+**My Tasks View Logic:**
+```
+User sees claim in My Tasks if:
+├── Has ACTIVE sub-task (first incomplete in sequence)
+├── OR is step assignee with all sub-tasks done (ready to advance)
+└── OR is claim assignee
+
+Each task shows:
+├── taskType: "ACTIVE_SUBTASK" | "STEP_COMPLETION" | "ASSIGNED"
+├── stepStatus: Current step status (NOT_STARTED, IN_PROGRESS, etc.)
+├── Claim info
+└── Active sub-task details (if applicable)
+```
+
+**Notification Types:**
+
+| Type | When | Recipient |
+|------|------|-----------|
+| `SUB_TASK_ASSIGNED` | Sub-task created (queued) | Sub-task assignee |
+| `SUB_TASK_ACTIVATED` | Previous sub-task completed | Next sub-task assignee |
+| `STEP_READY_FOR_COMPLETION` | All sub-tasks done | Step assignee |
+
+**API Endpoints:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/claims/[id]/sub-tasks` | GET | List sub-tasks (supports `?activeOnly=true&forUserId={id}&stepId={id}`) |
+| `/api/claims/[id]/sub-tasks` | POST | Create sub-task (auto-activates if first) |
+| `/api/claims/[id]/sub-tasks/[taskId]` | PUT | Update sub-task |
+| `/api/claims/[id]/sub-tasks/[taskId]` | DELETE | Delete sub-task |
+| `/api/claims/[id]/sub-tasks/[taskId]/complete` | POST | Complete sub-task (triggers next activation) |
+| `/api/my-tasks` | GET | Get user's tasks (filters to active sub-tasks only) |
+
+**Helper Utilities** (`src/lib/sub-task-utils.ts`):
+```typescript
+getActiveSubTask(claimId, workflowStepId)      // Get first PENDING/IN_PROGRESS
+getNextSubTask(claimId, workflowStepId, sortOrder) // Get next in sequence
+areAllSubTasksCompleted(claimId, workflowStepId)   // Check if all done
+checkUserHasActiveSubTask(userId, claimId, stepId) // User has active task?
+checkStepAssigneeReady(userId, claimId, stepId)    // Step assignee can complete?
+activateSubTask(subTaskId, tenantId, ...)          // Activate and notify
+notifySubTaskActivation(...)                       // Send activation notification
+notifyStepReadyForCompletion(...)                  // Notify step assignee
+```
+
+**Component Props** (`SubTaskList`):
+```typescript
+interface SubTaskListProps {
+  claimId: number;
+  workflowStepId: number;
+  isCurrentStep: boolean;
+  onSubTasksChange?: () => void;
+  // Sequential mode props
+  sequentialMode?: boolean;        // Enable sequential display
+  currentUserId?: number;          // Current logged-in user ID
+  isStepAssignee?: boolean;        // User is the step assignee
+  showAllForManagers?: boolean;    // Managers can see all sub-tasks
+  onStepComplete?: () => void;     // Callback when step should be completed
+  // Assignee mode props
+  assigneeMode?: boolean;          // Restrict to assignee-only actions (hide edit/delete)
+  hideAddButton?: boolean;         // Hide the add sub-task button
+}
+```
 
 ### 2. Collection Receiving & Claim Creation
 
@@ -622,6 +983,49 @@ const result = await prisma.$transaction(async (tx) => {
 - Payment tracking: UNPAID → PARTIAL → PAID
 - Warranty-covered amount segregation
 - Ready-for-delivery flag
+
+### 6. Shop Verification Workflow
+
+**Two-tier shop management** with verification status for quality control.
+
+**Database Field:**
+- `Shop.isVerified` (Boolean, default: false)
+
+**UI Structure** (`/shops`):
+
+| Tab | Shows | Filter |
+|-----|-------|--------|
+| **Verified Shops** | Active, approved shops | `isVerified=true` |
+| **Pending Approval** | Shops awaiting verification | `isVerified=false` |
+
+**Workflow Logic:**
+- Shops created from `/shops/new` page → auto-verified (`isVerified: true`)
+- Shops created during warranty card registration (new shop) → pending verification
+- Admin must approve pending shops to make them active
+
+**API Endpoint**: `POST /api/shops/[id]/approve`
+```json
+// Request (no body required)
+POST /api/shops/123/approve
+
+// Response
+{
+  "success": true,
+  "data": {
+    "id": 123,
+    "name": "Shop Name",
+    "isVerified": true,
+    "_count": { "customers": 5, "warrantyCards": 10 }
+  }
+}
+```
+
+**Permissions Required:** `shops.edit` OR `shops.approve`
+
+**Error Codes:**
+- `FORBIDDEN` (403): User lacks permission
+- `NOT_FOUND` (404): Shop doesn't exist
+- `ALREADY_VERIFIED` (400): Shop is already verified
 
 ## Commands
 
@@ -824,12 +1228,21 @@ import { Plus, Edit, Trash2, Eye, Search, Filter } from "lucide-react";
 | Products & Categories | Complete |
 | Inventory | Complete |
 | Shops | Complete |
+| Shop Verification/Approval | Complete |
 | Customers | Complete |
 | Warranty Cards | Complete |
 | Claims | Complete |
 | Workflows | Complete |
 | Sub-tasks | Complete |
+| Sequential Sub-Task Workflow | Complete |
 | Step Assignments | Complete |
+| Step Status Tracking | Complete |
+| Dual View (Admin/Assignee) | Complete |
+| Optional Next User Selection | Complete |
+| Workflow Visualization | Complete |
+| Process Step Dialog (with next step info) | Complete |
+| Sub-task Blocking (Process Step) | Complete |
+| Change Workflow Lock | Complete |
 | Logistics (Individual) | Complete |
 | Logistics (Trip-based) | Complete |
 | Collector Dashboard | Complete |

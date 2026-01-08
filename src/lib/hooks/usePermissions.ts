@@ -43,13 +43,19 @@ export function usePermissions(): UsePermissionsReturn {
 
     try {
       const res = await fetch("/api/auth/refresh");
+      if (!res.ok) {
+        // Server returned error - use session permissions as fallback
+        setIsLoading(false);
+        return;
+      }
       const data = await res.json();
 
       if (data.success) {
         setUserData(data.data);
       }
-    } catch (error) {
-      console.error("Error refreshing permissions:", error);
+    } catch {
+      // Network error - silently use session permissions as fallback
+      // This can happen when server is starting or network is unstable
     } finally {
       setIsLoading(false);
     }
@@ -89,7 +95,7 @@ export function usePermissions(): UsePermissionsReturn {
   return {
     permissions,
     roleName,
-    isLoading: isLoading && status === "loading",
+    isLoading: status === "loading" || (status === "authenticated" && isLoading),
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,

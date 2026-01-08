@@ -123,16 +123,28 @@ export function UnifiedDashboard({ userName, userPermissions }: UnifiedDashboard
         setRefreshing(true);
       }
       const res = await fetch("/api/dashboard");
+      if (!res.ok) {
+        // Server returned error - silently fail on refresh, show error on initial load
+        if (!isRefresh) {
+          toast.error("Failed to load dashboard");
+        }
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
       const result = await res.json();
 
       if (result.success) {
         setData(result.data);
-      } else {
+      } else if (!isRefresh) {
         toast.error(result.error?.message || "Failed to load dashboard");
       }
-    } catch (error) {
-      console.error("Error fetching dashboard:", error);
-      toast.error("Failed to load dashboard");
+    } catch {
+      // Network error - silently fail on refresh to avoid spam
+      if (!isRefresh) {
+        console.error("Error fetching dashboard");
+        toast.error("Failed to load dashboard");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -3,6 +3,7 @@
 // ===========================================
 // Sub-Task List Component
 // Displays and manages sub-tasks within a workflow step
+// Supports sequential mode: Only shows active sub-task to assignee
 // ===========================================
 
 import { useState, useEffect } from "react";
@@ -15,6 +16,8 @@ import {
   User,
   AlertCircle,
   MoreHorizontal,
+  ArrowRight,
+  ListChecks,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -59,6 +62,17 @@ interface SubTaskListProps {
   workflowStepId: number;
   isCurrentStep: boolean;
   onSubTasksChange?: () => void;
+  // Sequential mode props
+  sequentialMode?: boolean;        // Show only active sub-task to assignee
+  currentUserId?: number;          // Current logged-in user ID
+  isStepAssignee?: boolean;        // User is the step assignee
+  showAllForManagers?: boolean;    // Managers can see all sub-tasks
+  onStepComplete?: () => void;     // Callback when step should be completed
+  // Assignee mode props
+  assigneeMode?: boolean;          // Restrict to assignee-only actions
+  hideAddButton?: boolean;         // Hide the add sub-task button
+  // Status tracking callback
+  onSubTaskStatusChange?: (hasIncomplete: boolean) => void; // Called when sub-task status changes
 }
 
 export function SubTaskList({
@@ -66,19 +80,57 @@ export function SubTaskList({
   workflowStepId,
   isCurrentStep,
   onSubTasksChange,
+  sequentialMode = false,
+  currentUserId,
+  isStepAssignee = false,
+  showAllForManagers = false,
+  onStepComplete,
+  assigneeMode = false,
+  hideAddButton = false,
+  onSubTaskStatusChange,
 }: SubTaskListProps) {
   const [subTasks, setSubTasks] = useState<SubTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<SubTask | null>(null);
+  const [allSubTasksDone, setAllSubTasksDone] = useState(false);
+  const [isActiveSubTask, setIsActiveSubTask] = useState(false);
 
   // Fetch sub-tasks
   const fetchSubTasks = async () => {
     try {
-      const res = await fetch(`/api/claims/${claimId}/sub-tasks?stepId=${workflowStepId}`);
+      let url = `/api/claims/${claimId}/sub-tasks?stepId=${workflowStepId}`;
+
+      // In sequential mode for non-managers, only fetch active sub-task
+      if (sequentialMode && currentUserId && !showAllForManagers) {
+        url += `&activeOnly=true&forUserId=${currentUserId}`;
+      }
+
+      const res = await fetch(url);
       const data = await res.json();
       if (data.success) {
         setSubTasks(data.data.subTasks);
+        setIsActiveSubTask(data.data.isActiveSubTask ?? false);
+
+        // Check if all sub-tasks are done (for step assignee)
+        if (data.data.stats) {
+          const { pending, inProgress } = data.data.stats;
+          // All done when no pending or in-progress sub-tasks
+          const allDone = pending === 0 && inProgress === 0;
+          setAllSubTasksDone(allDone);
+
+          // Notify parent about sub-task completion status
+          // hasIncomplete = true when there are pending or in-progress sub-tasks
+          const hasIncomplete = pending > 0 || inProgress > 0;
+          onSubTaskStatusChange?.(hasIncomplete);
+        } else {
+          // If no stats, check subTasks directly
+          const hasIncomplete = data.data.subTasks.some(
+            (t: SubTask) => t.status === "PENDING" || t.status === "IN_PROGRESS"
+          );
+          setAllSubTasksDone(!hasIncomplete);
+          onSubTaskStatusChange?.(hasIncomplete);
+        }
       }
     } catch (error) {
       console.error("Error fetching sub-tasks:", error);
@@ -231,7 +283,7 @@ export function SubTaskList({
                 </CardDescription>
               )}
             </div>
-            {isCurrentStep && (
+            {isCurrentStep && !hideAddButton && (
               <Button size="sm" variant="outline" onClick={() => setShowAddDialog(true)}>
                 <Plus className="h-4 w-4 mr-1" />
                 Add
@@ -243,13 +295,45 @@ export function SubTaskList({
           )}
         </CardHeader>
         <CardContent>
-          {subTasks.length === 0 ? (
+          {/* Sequential Mode: Active Task Indicator */}
+          {sequentialMode && isActiveSubTask && subTasks.length > 0 && (
+            <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <p className="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                <ArrowRight className="h-4 w-4" />
+                <span className="font-medium">Your current active task.</span> Complete it to unlock the next task.
+              </p>
+            </div>
+          )}
+
+          {/* Step Assignee: All Sub-Tasks Done */}
+          {isStepAssignee && allSubTasksDone && (
+            <div className="p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
+              <div className="flex items-center gap-2 mb-2">
+                <ListChecks className="h-5 w-5 text-green-600" />
+                <p className="text-sm text-green-700 dark:text-green-300 font-medium">
+                  All tasks completed!
+                </p>
+              </div>
+              <p className="text-sm text-green-600 dark:text-green-400 mb-3">
+                You can now advance the workflow to the next step.
+              </p>
+              {onStepComplete && (
+                <Button onClick={onStepComplete} size="sm" className="bg-green-600 hover:bg-green-700">
+                  Complete Step & Continue
+                </Button>
+              )}
+            </div>
+          )}
+
+          {subTasks.length === 0 && !allSubTasksDone ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              {isCurrentStep
-                ? "No sub-tasks yet. Add one to track work within this step."
-                : "No sub-tasks for this step."}
+              {sequentialMode && !showAllForManagers
+                ? "No active task assigned to you for this step."
+                : isCurrentStep
+                  ? "No sub-tasks yet. Add one to track work within this step."
+                  : "No sub-tasks for this step."}
             </p>
-          ) : (
+          ) : subTasks.length > 0 ? (
             <div className="space-y-2">
               {subTasks.map((task) => (
                 <div
@@ -326,32 +410,36 @@ export function SubTaskList({
                           <CheckCircle2 className="h-4 w-4 mr-2" />
                           Mark Complete
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setEditingTask(task)}>
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {task.status !== "CANCELLED" && (
-                          <DropdownMenuItem
-                            onClick={() => handleStatusChange(task.id, "CANCELLED")}
-                            className="text-orange-600"
-                          >
-                            Cancel
-                          </DropdownMenuItem>
+                        {!assigneeMode && (
+                          <>
+                            <DropdownMenuItem onClick={() => setEditingTask(task)}>
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {task.status !== "CANCELLED" && (
+                              <DropdownMenuItem
+                                onClick={() => handleStatusChange(task.id, "CANCELLED")}
+                                className="text-orange-600"
+                              >
+                                Cancel
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(task.id)}
+                              className="text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
                         )}
-                        <DropdownMenuItem
-                          onClick={() => handleDelete(task.id)}
-                          className="text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
                 </div>
               ))}
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 

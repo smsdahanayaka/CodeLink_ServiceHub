@@ -1,6 +1,7 @@
 // ===========================================
 // Complete Sub-Task API
 // POST - Mark sub-task as completed
+// Includes sequential activation of next sub-task
 // ===========================================
 
 import { NextRequest } from "next/server";
@@ -12,6 +13,13 @@ import {
   handleZodError,
 } from "@/lib/api-utils";
 import { completeSubTaskSchema } from "@/lib/validations";
+import {
+  getNextSubTask,
+  areAllSubTasksCompleted,
+  getStepAssignee,
+  activateSubTask,
+  notifyStepReadyForCompletion,
+} from "@/lib/sub-task-utils";
 
 // POST /api/claims/[id]/sub-tasks/[taskId]/complete - Complete sub-task
 export async function POST(
@@ -117,8 +125,51 @@ export async function POST(
       return completed;
     });
 
-    // Check if all sub-tasks for this step are now completed
-    const pendingSubTasks = await prisma.claimSubTask.count({
+    // SEQUENTIAL ACTIVATION: Find and activate next sub-task
+    let nextSubTaskActivated = null;
+    let stepReadyForCompletion = false;
+
+    const nextSubTask = await getNextSubTask(
+      claimId,
+      subTask.workflowStepId,
+      subTask.sortOrder
+    );
+
+    if (nextSubTask) {
+      // Activate next sub-task and notify assignee
+      nextSubTaskActivated = await activateSubTask(
+        nextSubTask.id,
+        user.tenantId,
+        claimId,
+        claim.claimNumber,
+        user.id
+      );
+    } else {
+      // No more sub-tasks - check if all are done
+      const allDone = await areAllSubTasksCompleted(claimId, subTask.workflowStepId);
+      if (allDone) {
+        stepReadyForCompletion = true;
+
+        // Notify step assignee
+        const stepAssignee = await getStepAssignee(claimId, subTask.workflowStepId);
+        if (stepAssignee && stepAssignee.id !== user.id) {
+          const step = await prisma.workflowStep.findUnique({
+            where: { id: subTask.workflowStepId },
+            select: { name: true },
+          });
+          await notifyStepReadyForCompletion(
+            user.tenantId,
+            stepAssignee.id,
+            claimId,
+            claim.claimNumber,
+            step?.name || "Current Step"
+          );
+        }
+      }
+    }
+
+    // Count remaining sub-tasks
+    const remainingSubTasks = await prisma.claimSubTask.count({
       where: {
         claimId,
         workflowStepId: subTask.workflowStepId,
@@ -128,8 +179,16 @@ export async function POST(
 
     return successResponse({
       subTask: updated,
-      allSubTasksCompleted: pendingSubTasks === 0,
-      remainingSubTasks: pendingSubTasks,
+      allSubTasksCompleted: remainingSubTasks === 0,
+      remainingSubTasks,
+      stepReadyForCompletion,
+      nextSubTask: nextSubTaskActivated
+        ? {
+            id: nextSubTaskActivated.id,
+            title: nextSubTaskActivated.title,
+            assignedTo: nextSubTaskActivated.assignedUser,
+          }
+        : null,
     });
   } catch (error) {
     console.error("Error completing sub-task:", error);

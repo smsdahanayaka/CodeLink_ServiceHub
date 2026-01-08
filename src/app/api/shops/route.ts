@@ -23,6 +23,8 @@ export async function GET(request: NextRequest) {
     const { page, limit, search, sortBy, sortOrder, skip } = parsePaginationParams(searchParams);
     const status = searchParams.get("status");
 
+    const isVerified = searchParams.get("isVerified");
+
     // Build where clause
     const where = {
       tenantId: user.tenantId,
@@ -34,6 +36,8 @@ export async function GET(request: NextRequest) {
         ],
       }),
       ...(status && { status: status as "ACTIVE" | "INACTIVE" | "SUSPENDED" }),
+      // Filter by verification status if provided
+      ...(isVerified !== null && { isVerified: isVerified === "true" }),
     };
 
     // Get total count

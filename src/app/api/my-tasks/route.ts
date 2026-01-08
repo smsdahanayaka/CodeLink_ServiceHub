@@ -1,5 +1,7 @@
 // ===========================================
 // My Tasks API - Get claims assigned to current user
+// Includes: claim assignments + ACTIVE sub-task assignments + step assignments
+// Sequential mode: Only shows claims where user has the ACTIVE sub-task
 // ===========================================
 
 import { NextRequest } from "next/server";
@@ -11,6 +13,10 @@ import {
   parsePaginationParams,
   calculatePaginationMeta,
 } from "@/lib/api-utils";
+import {
+  checkUserHasActiveSubTask,
+  checkStepAssigneeReady,
+} from "@/lib/sub-task-utils";
 
 // GET /api/my-tasks - Get claims assigned to current user
 export async function GET(request: NextRequest) {
@@ -24,11 +30,41 @@ export async function GET(request: NextRequest) {
     const excludeResolved = searchParams.get("excludeResolved") === "true";
     const onlyResolved = searchParams.get("onlyResolved") === "true";
 
-    // Build where clause - claims assigned to current user
+    // Build where clause - claims assigned to current user OR with sub-tasks/step assignments
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {
+    const baseConditions: any = {
       tenantId: user.tenantId,
-      assignedTo: user.id,
+    };
+
+    // User can see claims if:
+    // 1. Claim is directly assigned to them
+    // 2. They have pending sub-tasks assigned to them (status not COMPLETED or CANCELLED)
+    // 3. They have active step assignments
+    const assignmentConditions = {
+      OR: [
+        { assignedTo: user.id },
+        {
+          subTasks: {
+            some: {
+              assignedTo: user.id,
+              status: { in: ["PENDING", "IN_PROGRESS"] },
+            },
+          },
+        },
+        {
+          stepAssignments: {
+            some: {
+              assignedUserId: user.id,
+              isActive: true,
+            },
+          },
+        },
+      ],
+    };
+
+    const where = {
+      ...baseConditions,
+      ...assignmentConditions,
     };
 
     // Priority filter
@@ -48,7 +84,7 @@ export async function GET(request: NextRequest) {
     const total = await prisma.warrantyClaim.count({ where });
 
     // Get claims with pagination
-    const claims = await prisma.warrantyClaim.findMany({
+    const rawClaims = await prisma.warrantyClaim.findMany({
       where,
       include: {
         warrantyCard: {
@@ -84,23 +120,115 @@ export async function GET(request: NextRequest) {
         assignedUser: {
           select: { id: true, firstName: true, lastName: true },
         },
+        // Include user's pending sub-tasks for context
+        subTasks: {
+          where: {
+            assignedTo: user.id,
+            status: { in: ["PENDING", "IN_PROGRESS"] },
+          },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            dueDate: true,
+            sortOrder: true,
+          },
+          orderBy: { sortOrder: "asc" },
+          take: 1, // Only get the first one (potential active task)
+        },
       },
       orderBy: { [sortBy]: sortOrder },
       skip,
       take: limit,
     });
 
-    // Calculate stats
+    // SEQUENTIAL FILTERING: Only include claims where user has ACTIVE sub-task
+    // or is step assignee ready to complete, or is claim assignee
+    const claims = [];
+    for (const claim of rawClaims) {
+      let taskType: "ASSIGNED" | "ACTIVE_SUBTASK" | "STEP_COMPLETION" = "ASSIGNED";
+
+      // Check if user is claim assignee
+      const isClaimAssignee = claim.assignedTo === user.id;
+
+      // Check if user has the active sub-task for this claim's current step
+      const hasActiveSubTask = claim.currentStepId
+        ? await checkUserHasActiveSubTask(user.id, claim.id, claim.currentStepId)
+        : false;
+
+      // Check if user is step assignee and all sub-tasks are done
+      const isStepAssigneeReady = claim.currentStepId
+        ? await checkStepAssigneeReady(user.id, claim.id, claim.currentStepId)
+        : false;
+
+      // Determine task type and whether to include
+      if (hasActiveSubTask) {
+        taskType = "ACTIVE_SUBTASK";
+      } else if (isStepAssigneeReady) {
+        taskType = "STEP_COMPLETION";
+      } else if (isClaimAssignee) {
+        taskType = "ASSIGNED";
+      } else {
+        // User has a sub-task but it's not the active one - skip this claim
+        continue;
+      }
+
+      // Get step status from ClaimStepAssignment
+      let stepStatus = null;
+      if (claim.currentStepId) {
+        const stepAssignment = await prisma.claimStepAssignment.findUnique({
+          where: {
+            claimId_workflowStepId: {
+              claimId: claim.id,
+              workflowStepId: claim.currentStepId,
+            },
+          },
+          select: {
+            stepStatus: true,
+            stepStartedAt: true,
+          },
+        });
+        stepStatus = stepAssignment?.stepStatus || null;
+      }
+
+      claims.push({
+        ...claim,
+        taskType,
+        stepStatus,
+        // Include the active sub-task info if applicable
+        activeSubTask: hasActiveSubTask && claim.subTasks.length > 0 ? claim.subTasks[0] : null,
+      });
+    }
+
+    // Calculate stats - include all assignment types
     const now = new Date();
     let slaWarning = 0;
     let slaBreach = 0;
 
-    // Get all pending claims for stats calculation
+    // Get all pending claims for stats calculation (same OR logic)
     const allPendingClaims = await prisma.warrantyClaim.findMany({
       where: {
         tenantId: user.tenantId,
-        assignedTo: user.id,
         resolvedAt: null,
+        OR: [
+          { assignedTo: user.id },
+          {
+            subTasks: {
+              some: {
+                assignedTo: user.id,
+                status: { in: ["PENDING", "IN_PROGRESS"] },
+              },
+            },
+          },
+          {
+            stepAssignments: {
+              some: {
+                assignedUserId: user.id,
+                isActive: true,
+              },
+            },
+          },
+        ],
       },
       include: {
         currentStep: {
@@ -134,8 +262,29 @@ export async function GET(request: NextRequest) {
     const completedToday = await prisma.warrantyClaim.count({
       where: {
         tenantId: user.tenantId,
-        assignedTo: user.id,
         resolvedAt: { gte: startOfDay },
+        OR: [
+          { assignedTo: user.id },
+          {
+            subTasks: {
+              some: {
+                assignedTo: user.id,
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    // Count pending sub-tasks separately for additional context
+    const pendingSubTasks = await prisma.claimSubTask.count({
+      where: {
+        assignedTo: user.id,
+        status: { in: ["PENDING", "IN_PROGRESS"] },
+        claim: {
+          tenantId: user.tenantId,
+          resolvedAt: null,
+        },
       },
     });
 
@@ -143,6 +292,7 @@ export async function GET(request: NextRequest) {
     const stats = {
       total: allPendingClaims.length,
       pending: allPendingClaims.length,
+      pendingSubTasks,
       slaWarning,
       slaBreach,
       completedToday,

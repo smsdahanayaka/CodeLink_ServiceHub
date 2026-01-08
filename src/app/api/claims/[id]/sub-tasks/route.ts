@@ -2,6 +2,7 @@
 // Claim Sub-Tasks API
 // GET - List sub-tasks for a claim
 // POST - Create a new sub-task
+// Supports sequential mode with activeOnly filter
 // ===========================================
 
 import { NextRequest } from "next/server";
@@ -13,6 +14,7 @@ import {
   handleZodError,
 } from "@/lib/api-utils";
 import { createSubTaskSchema } from "@/lib/validations";
+import { getActiveSubTask, activateSubTask } from "@/lib/sub-task-utils";
 
 // GET /api/claims/[id]/sub-tasks - List sub-tasks
 export async function GET(
@@ -28,10 +30,13 @@ export async function GET(
       return errorResponse("Invalid claim ID", "INVALID_ID", 400);
     }
 
-    // Get optional stepId filter
+    // Get query parameters
     const { searchParams } = new URL(request.url);
     const stepIdParam = searchParams.get("stepId");
     const stepId = stepIdParam ? parseInt(stepIdParam) : undefined;
+    const activeOnly = searchParams.get("activeOnly") === "true";
+    const forUserIdParam = searchParams.get("forUserId");
+    const forUserId = forUserIdParam ? parseInt(forUserIdParam) : undefined;
 
     // Verify claim exists and belongs to tenant
     const claim = await prisma.warrantyClaim.findFirst({
@@ -45,11 +50,53 @@ export async function GET(
     // Check permission
     const canViewAll = user.permissions.includes("claims.view_all");
     const isAssigned = claim.assignedTo === user.id;
-    if (!canViewAll && !isAssigned) {
+
+    // For activeOnly mode, check if user has active sub-task
+    if (activeOnly && forUserId && !canViewAll) {
+      // User can only see their own active sub-task
+      if (forUserId !== user.id) {
+        return errorResponse("Access denied", "FORBIDDEN", 403);
+      }
+    } else if (!canViewAll && !isAssigned) {
       return errorResponse("Access denied", "FORBIDDEN", 403);
     }
 
-    // Fetch sub-tasks
+    // SEQUENTIAL MODE: Return only the active sub-task for a specific user
+    if (activeOnly && forUserId && stepId) {
+      const activeSubTask = await getActiveSubTask(claimId, stepId);
+
+      // Check if the active sub-task belongs to the requested user
+      if (activeSubTask && activeSubTask.assignedTo === forUserId) {
+        const stats = {
+          total: 1,
+          pending: activeSubTask.status === "PENDING" ? 1 : 0,
+          inProgress: activeSubTask.status === "IN_PROGRESS" ? 1 : 0,
+          completed: 0,
+          cancelled: 0,
+        };
+
+        return successResponse({
+          claimId,
+          stepId,
+          subTasks: [activeSubTask],
+          groupedByStep: null,
+          stats,
+          isActiveSubTask: true,
+        });
+      }
+
+      // User doesn't have an active sub-task for this step
+      return successResponse({
+        claimId,
+        stepId,
+        subTasks: [],
+        groupedByStep: null,
+        stats: { total: 0, pending: 0, inProgress: 0, completed: 0, cancelled: 0 },
+        isActiveSubTask: false,
+      });
+    }
+
+    // STANDARD MODE: Fetch all sub-tasks
     const subTasks = await prisma.claimSubTask.findMany({
       where: {
         claimId,
@@ -230,7 +277,61 @@ export async function POST(
       },
     });
 
-    return successResponse(subTask);
+    // SEQUENTIAL MODE: Auto-activate first sub-task
+    // Check if this is the first (and only) sub-task for this step
+    const existingSubTasksCount = await prisma.claimSubTask.count({
+      where: {
+        claimId,
+        workflowStepId: data.workflowStepId,
+      },
+    });
+
+    let activatedSubTask = subTask;
+    if (existingSubTasksCount === 1) {
+      // This is the first sub-task - auto-activate it
+      activatedSubTask = await activateSubTask(
+        subTask.id,
+        user.tenantId,
+        claimId,
+        claim.claimNumber,
+        user.id
+      );
+    } else {
+      // Not the first sub-task - send notification only (task stays PENDING)
+      if (data.assignedTo && data.assignedTo !== user.id) {
+        const creatorName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+        await prisma.notification.create({
+          data: {
+            tenantId: user.tenantId,
+            userId: data.assignedTo,
+            type: "SUB_TASK_ASSIGNED",
+            title: "New Task Assigned",
+            message: `${creatorName} assigned you a sub-task: "${data.title}" for claim ${claim.claimNumber}. It will become active when previous tasks are completed.`,
+            link: `/claims/${claimId}`,
+            data: {
+              claimId,
+              claimNumber: claim.claimNumber,
+              subTaskId: subTask.id,
+              subTaskTitle: data.title,
+              assignedBy: user.id,
+              isQueued: true,
+            },
+          },
+        });
+      }
+    }
+
+    // Re-fetch with includes for response
+    const result = await prisma.claimSubTask.findUnique({
+      where: { id: subTask.id },
+      include: {
+        workflowStep: { select: { id: true, name: true } },
+        assignedUser: { select: { id: true, firstName: true, lastName: true } },
+        createdByUser: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    return successResponse(result);
   } catch (error) {
     console.error("Error creating sub-task:", error);
     if (error instanceof Error && error.message === "Unauthorized") {

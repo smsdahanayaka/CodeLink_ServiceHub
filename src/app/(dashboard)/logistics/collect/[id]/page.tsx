@@ -174,7 +174,7 @@ export default function CollectionTripDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, isLoading: permissionsLoading } = usePermissions();
 
   const [trip, setTrip] = useState<CollectionTrip | null>(null);
   const [loading, setLoading] = useState(true);
@@ -214,7 +214,8 @@ export default function CollectionTripDetailPage({
     address: "",
   });
 
-  const canManage = hasPermission("logistics.create_collection") || hasPermission("logistics.collect");
+  // Only check permissions after they're loaded
+  const canManage = !permissionsLoading && (hasPermission("logistics.create_collection") || hasPermission("logistics.collect"));
 
   useEffect(() => {
     fetchTrip();
@@ -311,6 +312,11 @@ export default function CollectionTripDetailPage({
   };
 
   const handleAddItem = async () => {
+    if (!selectedShopId) {
+      toast.error("Please select a shop");
+      return;
+    }
+
     if (!newItem.serialNumber.trim()) {
       toast.error("Please enter the device serial number");
       return;
@@ -424,6 +430,7 @@ export default function CollectionTripDetailPage({
           phone: newShop.phone.trim() || null,
           address: newShop.address.trim() || null,
           status: "ACTIVE",
+          isVerified: false, // Inline created shops need approval
         }),
       });
 
@@ -450,9 +457,9 @@ export default function CollectionTripDetailPage({
 
   // Get selected shop name for display
   const getSelectedShopName = () => {
-    if (!selectedShopId) return "No Shop / Direct Customer";
+    if (!selectedShopId) return "Select a shop...";
     const shop = shops.find((s) => s.id === selectedShopId);
-    return shop?.name || "Select shop...";
+    return shop?.name || "Select a shop...";
   };
 
   // Filter shops by search query
@@ -852,7 +859,7 @@ export default function CollectionTripDetailPage({
           <div className="space-y-4 py-4">
             {/* Shop Selection with Search and Create */}
             <div className="space-y-2">
-              <Label>Shop</Label>
+              <Label>Shop *</Label>
               {showCreateShop ? (
                 /* Inline Shop Creation Form */
                 <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
@@ -946,25 +953,6 @@ export default function CollectionTripDetailPage({
                           </CommandEmpty>
                         ) : (
                           <>
-                            <CommandGroup>
-                              {/* No Shop Option */}
-                              <CommandItem
-                                value="none"
-                                onSelect={() => {
-                                  setSelectedShopId(null);
-                                  setShopComboOpen(false);
-                                  setShopSearchQuery("");
-                                }}
-                              >
-                                <Check
-                                  className={`mr-2 h-4 w-4 ${
-                                    selectedShopId === null ? "opacity-100" : "opacity-0"
-                                  }`}
-                                />
-                                <span className="text-muted-foreground">No Shop / Direct Customer</span>
-                              </CommandItem>
-                            </CommandGroup>
-                            <CommandSeparator />
                             <CommandGroup heading="Shops">
                               {filteredShops.length === 0 ? (
                                 <div className="py-3 px-2 text-center">

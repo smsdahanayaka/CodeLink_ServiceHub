@@ -22,9 +22,6 @@ import {
   Loader2,
   Route,
   Plus,
-  Check,
-  ChevronsUpDown,
-  PlusCircle,
   Store,
   User,
 } from "lucide-react";
@@ -51,20 +48,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from "@/components/ui/command";
 import { toast } from "sonner";
 
 interface CollectionTrip {
@@ -137,13 +120,6 @@ interface PendingPickup {
   } | null;
 }
 
-interface Shop {
-  id: number;
-  name: string;
-  address: string | null;
-  phone: string | null;
-}
-
 export default function MyTripsPage() {
   const router = useRouter();
 
@@ -158,20 +134,7 @@ export default function MyTripsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [creatingTrip, setCreatingTrip] = useState(false);
   const [collectionType, setCollectionType] = useState<"SHOP" | "CUSTOMER">("SHOP");
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
-  const [shopComboOpen, setShopComboOpen] = useState(false);
-  const [shopSearchQuery, setShopSearchQuery] = useState("");
   const [customerDetails, setCustomerDetails] = useState({
-    name: "",
-    phone: "",
-    address: "",
-  });
-
-  // Quick shop creation state
-  const [showCreateShop, setShowCreateShop] = useState(false);
-  const [creatingShop, setCreatingShop] = useState(false);
-  const [newShop, setNewShop] = useState({
     name: "",
     phone: "",
     address: "",
@@ -179,20 +142,7 @@ export default function MyTripsPage() {
 
   useEffect(() => {
     fetchMyTrips();
-    fetchShops();
   }, []);
-
-  const fetchShops = async () => {
-    try {
-      const res = await fetch("/api/shops?limit=200&status=ACTIVE");
-      const data = await res.json();
-      if (data.success) {
-        setShops(data.data);
-      }
-    } catch (error) {
-      console.error("Error fetching shops:", error);
-    }
-  };
 
   const fetchMyTrips = async (isRefresh = false) => {
     try {
@@ -268,11 +218,7 @@ export default function MyTripsPage() {
 
   // Create direct collection trip
   const handleCreateCollection = async () => {
-    // Validate based on type
-    if (collectionType === "SHOP" && !selectedShopId) {
-      toast.error("Please select a shop");
-      return;
-    }
+    // Validate based on type - SHOP type doesn't need shop selection (assigned per-item)
     if (collectionType === "CUSTOMER") {
       if (!customerDetails.name.trim()) {
         toast.error("Customer name is required");
@@ -291,7 +237,7 @@ export default function MyTripsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fromType: collectionType,
-          shopId: collectionType === "SHOP" ? selectedShopId : null,
+          shopId: null, // Shop is assigned per-item when adding items
           customerName: collectionType === "CUSTOMER" ? customerDetails.name : null,
           customerPhone: collectionType === "CUSTOMER" ? customerDetails.phone : null,
           customerAddress: collectionType === "CUSTOMER" ? customerDetails.address || null : null,
@@ -301,7 +247,7 @@ export default function MyTripsPage() {
       const data = await res.json();
 
       if (data.success) {
-        toast.success("Collection trip created!");
+        toast.success("Collection trip created! Add items and assign shops.");
         setShowCreateDialog(false);
         resetCreateForm();
         // Navigate to the new trip
@@ -317,69 +263,11 @@ export default function MyTripsPage() {
     }
   };
 
-  // Quick shop creation
-  const handleCreateShop = async () => {
-    if (!newShop.name.trim()) {
-      toast.error("Shop name is required");
-      return;
-    }
-
-    try {
-      setCreatingShop(true);
-      const res = await fetch("/api/shops", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newShop.name.trim(),
-          phone: newShop.phone.trim() || null,
-          address: newShop.address.trim() || null,
-          status: "ACTIVE",
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        const createdShop: Shop = data.data;
-        setShops((prev) => [...prev, createdShop]);
-        setSelectedShopId(createdShop.id);
-        setShowCreateShop(false);
-        setNewShop({ name: "", phone: "", address: "" });
-        toast.success(`Shop "${createdShop.name}" created`);
-      } else {
-        throw new Error(data.error?.message || "Failed to create shop");
-      }
-    } catch (error) {
-      console.error("Error creating shop:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to create shop");
-    } finally {
-      setCreatingShop(false);
-    }
-  };
-
   // Reset create form
   const resetCreateForm = () => {
     setCollectionType("SHOP");
-    setSelectedShopId(null);
-    setShopSearchQuery("");
     setCustomerDetails({ name: "", phone: "", address: "" });
-    setShowCreateShop(false);
-    setNewShop({ name: "", phone: "", address: "" });
   };
-
-  // Get selected shop name
-  const getSelectedShopName = () => {
-    if (!selectedShopId) return "Select a shop...";
-    const shop = shops.find((s) => s.id === selectedShopId);
-    return shop?.name || "Select a shop...";
-  };
-
-  // Filter shops by search query
-  const filteredShops = shops.filter((shop) =>
-    shop.name.toLowerCase().includes(shopSearchQuery.toLowerCase()) ||
-    shop.address?.toLowerCase().includes(shopSearchQuery.toLowerCase()) ||
-    shop.phone?.includes(shopSearchQuery)
-  );
 
   const activeCollections = collectionTrips.filter((t) =>
     ["IN_PROGRESS", "IN_TRANSIT"].includes(t.status)
@@ -777,176 +665,20 @@ export default function MyTripsPage() {
             </div>
 
             {collectionType === "SHOP" ? (
-              /* Shop Selection */
-              <div className="space-y-2">
-                <Label>Select Shop *</Label>
-                {showCreateShop ? (
-                  /* Inline Shop Creation Form */
-                  <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium flex items-center gap-2">
-                        <PlusCircle className="h-4 w-4" />
-                        Create New Shop
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setShowCreateShop(false);
-                          setNewShop({ name: "", phone: "", address: "" });
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                    <div className="space-y-2">
-                      <Input
-                        placeholder="Shop name *"
-                        value={newShop.name}
-                        onChange={(e) => setNewShop((prev) => ({ ...prev, name: e.target.value }))}
-                        autoFocus
-                      />
-                      <Input
-                        placeholder="Phone (optional)"
-                        value={newShop.phone}
-                        onChange={(e) => setNewShop((prev) => ({ ...prev, phone: e.target.value }))}
-                      />
-                      <Input
-                        placeholder="Address (optional)"
-                        value={newShop.address}
-                        onChange={(e) => setNewShop((prev) => ({ ...prev, address: e.target.value }))}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="w-full"
-                      onClick={handleCreateShop}
-                      disabled={creatingShop || !newShop.name.trim()}
-                    >
-                      {creatingShop ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : (
-                        <Check className="h-4 w-4 mr-2" />
-                      )}
-                      Create & Select
-                    </Button>
+              /* Shop Collection Info */
+              <div className="border rounded-lg p-4 bg-blue-50 dark:bg-blue-950/30">
+                <div className="flex items-start gap-3">
+                  <Store className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                      Shop Collection
+                    </p>
+                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                      You can select or create shops when adding items to the collection.
+                      This allows collecting from multiple shops in one trip.
+                    </p>
                   </div>
-                ) : (
-                  /* Searchable Shop Dropdown */
-                  <Popover open={shopComboOpen} onOpenChange={setShopComboOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={shopComboOpen}
-                        className="w-full justify-between font-normal"
-                      >
-                        <span className="truncate">{getSelectedShopName()}</span>
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                      <Command shouldFilter={false}>
-                        <CommandInput
-                          placeholder="Search shops..."
-                          value={shopSearchQuery}
-                          onValueChange={setShopSearchQuery}
-                        />
-                        <CommandList>
-                          {shops.length === 0 ? (
-                            <CommandEmpty className="py-4 text-center">
-                              <p className="text-sm text-muted-foreground mb-2">No shops found</p>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setShopComboOpen(false);
-                                  setShowCreateShop(true);
-                                }}
-                              >
-                                <PlusCircle className="h-4 w-4 mr-2" />
-                                Create First Shop
-                              </Button>
-                            </CommandEmpty>
-                          ) : (
-                            <>
-                              <CommandGroup heading="Shops">
-                                {filteredShops.length === 0 ? (
-                                  <div className="py-3 px-2 text-center">
-                                    <p className="text-sm text-muted-foreground mb-2">
-                                      No match for "{shopSearchQuery}"
-                                    </p>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => {
-                                        setShopComboOpen(false);
-                                        setShowCreateShop(true);
-                                        setNewShop((prev) => ({ ...prev, name: shopSearchQuery }));
-                                        setShopSearchQuery("");
-                                      }}
-                                    >
-                                      <PlusCircle className="h-4 w-4 mr-2" />
-                                      Create "{shopSearchQuery}"
-                                    </Button>
-                                  </div>
-                                ) : (
-                                  filteredShops.map((shop) => (
-                                    <CommandItem
-                                      key={shop.id}
-                                      value={shop.id.toString()}
-                                      onSelect={() => {
-                                        setSelectedShopId(shop.id);
-                                        setShopComboOpen(false);
-                                        setShopSearchQuery("");
-                                      }}
-                                    >
-                                      <Check
-                                        className={`mr-2 h-4 w-4 ${
-                                          selectedShopId === shop.id ? "opacity-100" : "opacity-0"
-                                        }`}
-                                      />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="font-medium truncate">{shop.name}</div>
-                                        {(shop.address || shop.phone) && (
-                                          <div className="text-xs text-muted-foreground truncate">
-                                            {shop.address || shop.phone}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </CommandItem>
-                                  ))
-                                )}
-                              </CommandGroup>
-                              {filteredShops.length > 0 && (
-                                <>
-                                  <CommandSeparator />
-                                  <CommandGroup>
-                                    <CommandItem
-                                      onSelect={() => {
-                                        setShopComboOpen(false);
-                                        setShowCreateShop(true);
-                                        setShopSearchQuery("");
-                                      }}
-                                      className="text-primary"
-                                    >
-                                      <PlusCircle className="mr-2 h-4 w-4" />
-                                      Create New Shop
-                                    </CommandItem>
-                                  </CommandGroup>
-                                </>
-                              )}
-                            </>
-                          )}
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                )}
+                </div>
               </div>
             ) : (
               /* Customer Details */
