@@ -117,8 +117,11 @@ interface WorkflowStep {
   statusName: string;
   slaHours: number | null;
   slaWarningHours: number | null;
-  requiredRoleId: number | null;
-  autoAssignTo: number | null;
+  requiredRoleId: number | null;  // Deprecated
+  autoAssignTo: number | null;    // Deprecated
+  assignmentType: "ALL" | "ROLES" | "USERS";  // New: Assignment mode
+  allowedRoleIds: number[];       // New: Multiple roles
+  allowedUserIds: number[];       // New: Multiple users
   isOptional: boolean;
   canSkip: boolean;
   formFields: FormField[];
@@ -542,6 +545,9 @@ export default function WorkflowEditPage({
             slaWarningHours: number | null;
             requiredRoleId: number | null;
             autoAssignTo: number | null;
+            assignmentType: string | null;
+            allowedRoleIds: number[] | null;
+            allowedUserIds: number[] | null;
             isOptional: boolean;
             canSkip: boolean;
             formFields: FormField[] | null;
@@ -558,6 +564,9 @@ export default function WorkflowEditPage({
             slaWarningHours: step.slaWarningHours,
             requiredRoleId: step.requiredRoleId,
             autoAssignTo: step.autoAssignTo,
+            assignmentType: (step.assignmentType as "ALL" | "ROLES" | "USERS") || "ALL",
+            allowedRoleIds: (step.allowedRoleIds as number[]) || [],
+            allowedUserIds: (step.allowedUserIds as number[]) || [],
             isOptional: step.isOptional,
             canSkip: step.canSkip,
             formFields: (step.formFields as FormField[]) || [],
@@ -621,6 +630,9 @@ export default function WorkflowEditPage({
       slaWarningHours: null,
       requiredRoleId: null,
       autoAssignTo: null,
+      assignmentType: "ALL",
+      allowedRoleIds: [],
+      allowedUserIds: [],
       isOptional: false,
       canSkip: false,
       formFields: [],
@@ -725,6 +737,9 @@ export default function WorkflowEditPage({
         slaWarningHours: s.slaWarningHours,
         requiredRoleId: s.requiredRoleId,
         autoAssignTo: s.autoAssignTo,
+        assignmentType: s.assignmentType,
+        allowedRoleIds: s.allowedRoleIds,
+        allowedUserIds: s.allowedUserIds,
         isOptional: s.isOptional,
         canSkip: s.canSkip,
         formFields: s.formFields,
@@ -1080,62 +1095,165 @@ export default function WorkflowEditPage({
                   </TabsContent>
 
                   <TabsContent value="rules" className="space-y-6 mt-0">
-                    {/* Required Role */}
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Required Role</Label>
-                      <Select
-                        value={selectedStep.requiredRoleId?.toString() || "none"}
-                        onValueChange={(value) =>
-                          handleUpdateStep({
-                            ...selectedStep,
-                            requiredRoleId: value === "none" ? null : parseInt(value),
-                          })
-                        }
-                      >
-                        <SelectTrigger className="h-11">
-                          <SelectValue placeholder="Any role" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Any role can process</SelectItem>
-                          {roles.map((role) => (
-                            <SelectItem key={role.id} value={role.id.toString()}>
-                              {role.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground mt-1.5">
-                        Only users with this role can process this step
-                      </p>
-                    </div>
+                    {/* Assignment Type Selection */}
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Who Can Process This Step?</Label>
+                      <div className="space-y-2">
+                        {/* All Users Option */}
+                        <div
+                          className={cn(
+                            "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                            selectedStep.assignmentType === "ALL"
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-muted/50"
+                          )}
+                          onClick={() =>
+                            handleUpdateStep({
+                              ...selectedStep,
+                              assignmentType: "ALL",
+                              allowedRoleIds: [],
+                              allowedUserIds: [],
+                            })
+                          }
+                        >
+                          <div
+                            className={cn(
+                              "w-4 h-4 rounded-full border-2",
+                              selectedStep.assignmentType === "ALL"
+                                ? "border-primary bg-primary"
+                                : "border-muted-foreground"
+                            )}
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium">All Users</p>
+                            <p className="text-xs text-muted-foreground">Any active user can process this step</p>
+                          </div>
+                        </div>
 
-                    {/* Auto-Assign To */}
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Auto-Assign To</Label>
-                      <Select
-                        value={selectedStep.autoAssignTo?.toString() || "none"}
-                        onValueChange={(value) =>
-                          handleUpdateStep({
-                            ...selectedStep,
-                            autoAssignTo: value === "none" ? null : parseInt(value),
-                          })
-                        }
-                      >
-                        <SelectTrigger className="h-11">
-                          <SelectValue placeholder="No auto-assign" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No auto-assign</SelectItem>
-                          {users.map((user) => (
-                            <SelectItem key={user.id} value={user.id.toString()}>
-                              {user.firstName} {user.lastName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground mt-1.5">
-                        Automatically assign claims to this user when reaching this step
-                      </p>
+                        {/* Specific Roles Option */}
+                        <div
+                          className={cn(
+                            "flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                            selectedStep.assignmentType === "ROLES"
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-muted/50"
+                          )}
+                          onClick={() =>
+                            handleUpdateStep({
+                              ...selectedStep,
+                              assignmentType: "ROLES",
+                              allowedUserIds: [],
+                            })
+                          }
+                        >
+                          <div
+                            className={cn(
+                              "w-4 h-4 rounded-full border-2 mt-0.5",
+                              selectedStep.assignmentType === "ROLES"
+                                ? "border-primary bg-primary"
+                                : "border-muted-foreground"
+                            )}
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium">Specific Roles</p>
+                            <p className="text-xs text-muted-foreground mb-2">Only users with selected roles can process</p>
+
+                            {selectedStep.assignmentType === "ROLES" && (
+                              <div className="grid grid-cols-2 gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+                                {roles.map((role) => (
+                                  <label
+                                    key={role.id}
+                                    className={cn(
+                                      "flex items-center gap-2 p-2 rounded border cursor-pointer text-sm",
+                                      selectedStep.allowedRoleIds.includes(role.id)
+                                        ? "bg-primary/10 border-primary"
+                                        : "hover:bg-muted"
+                                    )}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedStep.allowedRoleIds.includes(role.id)}
+                                      onChange={(e) => {
+                                        const newRoleIds = e.target.checked
+                                          ? [...selectedStep.allowedRoleIds, role.id]
+                                          : selectedStep.allowedRoleIds.filter((id) => id !== role.id);
+                                        handleUpdateStep({
+                                          ...selectedStep,
+                                          allowedRoleIds: newRoleIds,
+                                        });
+                                      }}
+                                      className="h-4 w-4 rounded"
+                                    />
+                                    {role.name}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Specific Users Option */}
+                        <div
+                          className={cn(
+                            "flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                            selectedStep.assignmentType === "USERS"
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-muted/50"
+                          )}
+                          onClick={() =>
+                            handleUpdateStep({
+                              ...selectedStep,
+                              assignmentType: "USERS",
+                              allowedRoleIds: [],
+                            })
+                          }
+                        >
+                          <div
+                            className={cn(
+                              "w-4 h-4 rounded-full border-2 mt-0.5",
+                              selectedStep.assignmentType === "USERS"
+                                ? "border-primary bg-primary"
+                                : "border-muted-foreground"
+                            )}
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium">Specific Users</p>
+                            <p className="text-xs text-muted-foreground mb-2">Only selected users can process</p>
+
+                            {selectedStep.assignmentType === "USERS" && (
+                              <div className="grid grid-cols-1 gap-2 mt-2 max-h-48 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                                {users.map((user) => (
+                                  <label
+                                    key={user.id}
+                                    className={cn(
+                                      "flex items-center gap-2 p-2 rounded border cursor-pointer text-sm",
+                                      selectedStep.allowedUserIds.includes(user.id)
+                                        ? "bg-primary/10 border-primary"
+                                        : "hover:bg-muted"
+                                    )}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedStep.allowedUserIds.includes(user.id)}
+                                      onChange={(e) => {
+                                        const newUserIds = e.target.checked
+                                          ? [...selectedStep.allowedUserIds, user.id]
+                                          : selectedStep.allowedUserIds.filter((id) => id !== user.id);
+                                        handleUpdateStep({
+                                          ...selectedStep,
+                                          allowedUserIds: newUserIds,
+                                        });
+                                      }}
+                                      className="h-4 w-4 rounded"
+                                    />
+                                    {user.firstName} {user.lastName}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     {/* SLA Section */}

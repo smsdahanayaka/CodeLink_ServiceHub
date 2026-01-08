@@ -189,9 +189,35 @@ const hasAccess = await checkPermission("claims.view");
 | Model | Description |
 |-------|-------------|
 | `Workflow` | Process templates with trigger types |
-| `WorkflowStep` | Individual steps with SLA definitions |
+| `WorkflowStep` | Individual steps with SLA definitions and assignment configuration |
 | `StepTransition` | Step connections with conditional logic |
 | `StepNotification` | Notifications triggered on step events |
+
+### WorkflowStep Assignment Fields
+
+The `WorkflowStep` model includes fields for configuring user assignment:
+
+```prisma
+model WorkflowStep {
+  // ... other fields
+
+  // Assignment Configuration (Multi-select support)
+  assignmentType    String?  @db.VarChar(20)  // "ALL" | "ROLES" | "USERS"
+  allowedRoleIds    Json?                      // Array of role IDs: [1, 2, 3]
+  allowedUserIds    Json?                      // Array of user IDs: [5, 7, 9]
+
+  // Legacy fields (backward compatible)
+  requiredRoleId    Int?                       // Single role restriction
+  autoAssignTo      Int?                       // Auto-assign to specific user
+}
+```
+
+**Assignment Types:**
+| Type | Description | Filter Logic |
+|------|-------------|--------------|
+| `ALL` | Any active user can be assigned | Returns all active users |
+| `ROLES` | Only users with specific roles | Filters by `allowedRoleIds` array |
+| `USERS` | Only specific users | Filters by `allowedUserIds` array |
 
 ### Logistics Tables
 
@@ -591,6 +617,7 @@ const result = await prisma.$transaction(async (tx) => {
 - **Step Types**: START, ACTION, DECISION, NOTIFICATION, WAIT, END
 - **Transitions**: ALWAYS (auto), USER_CHOICE (manual), CONDITIONAL (rule-based)
 - **SLA Tracking**: Per-step time limits with escalation
+- **Multi-Select User Assignment**: Configure which users/roles can be assigned to each step
 - **Optional User Selection**: Next user selection is optional when completing steps (can assign later)
 - **Step Status Tracking**: Detailed status per step (NOT_STARTED, STARTED, IN_PROGRESS, WAITING_FOR_PARTS, etc.)
 - **Sub-tasks**: Sequential checklist items within steps (see Sequential Sub-Task Workflow below)
@@ -600,6 +627,75 @@ const result = await prisma.$transaction(async (tx) => {
 - **Dual View System**: Admin vs Assignee views in claim detail page
 - **Workflow Visualization**: Tree view showing all steps, sub-tasks, assignees, and status
 - **Change Workflow Lock**: Cannot change workflow after it has started (past START step)
+- **START Step Permissions**: Anyone with `claims.process` or `claims.assign` can start workflows
+
+#### Multi-Select User Assignment Configuration
+
+Configure which users or roles can be assigned to each workflow step in the **Workflow Editor** (`/workflows/[id]/edit`).
+
+**Configuration Options (in Rules tab):**
+
+| Option | Description | Eligible Users |
+|--------|-------------|----------------|
+| **All Users** | No restriction | All active users in tenant |
+| **Specific Roles** | Multi-select roles | Users with any of the selected roles |
+| **Specific Users** | Multi-select users | Only the selected users |
+
+**Workflow Editor UI:**
+```
+Rules Tab → Step Assignment
+├── ○ All Users (any active user can process)
+├── ○ Specific Roles
+│   └── ☑ Admin  ☑ Technician  ☐ Manager
+└── ○ Specific Users
+    └── ☑ John Doe  ☑ Jane Smith  ☐ Bob Wilson
+```
+
+**API Endpoint:** `GET /api/workflows/steps/[stepId]/eligible-users`
+
+```json
+// Response
+{
+  "success": true,
+  "data": {
+    "step": { "id": 5, "name": "Diagnosis", "stepType": "ACTION" },
+    "assignmentConfig": {
+      "mode": "ROLES",           // "ALL" | "ROLES" | "USERS"
+      "assignmentType": "ROLES",
+      "allowedRoles": [
+        { "id": 2, "name": "Technician" },
+        { "id": 3, "name": "Senior Tech" }
+      ],
+      "allowedUserIds": [],
+      "preSelectedUserId": null
+    },
+    "eligibleUsers": [
+      {
+        "id": 5,
+        "firstName": "John",
+        "lastName": "Doe",
+        "fullName": "John Doe",
+        "email": "john@example.com",
+        "roleName": "Technician",
+        "workload": 3,           // Number of active claims
+        "isPreSelected": false
+      }
+    ],
+    "totalEligible": 5
+  }
+}
+```
+
+**Start Workflow Dialog:**
+- Shows eligible users based on the first ACTION step's assignment configuration
+- Displays badge showing assignment mode: "All Users", "2 Roles", "3 Specific Users"
+- Users sorted by workload (least busy first)
+- Pre-selected user shown first if configured
+
+**Direct END Step (No ACTION steps):**
+- If workflow only has START → END, shows warning message
+- No user selection needed
+- Button text changes to "Complete Workflow"
 
 #### Step Status API
 
@@ -692,10 +788,50 @@ Displays workflow progress as a tree view in the claim detail sidebar.
 **Features:**
 - Shows all workflow steps in order with connector lines
 - Each step displays: name, status badge, assigned user, start time
-- Sub-tasks shown as expandable list under each step
-- Color-coded status indicators (green=completed, blue=current, gray=pending)
+- Sub-tasks shown as expandable list under each step (except START step)
+- Color-coded status indicators:
+  - Green = completed
+  - Blue = current (ACTION/DECISION steps)
+  - Amber = preparation (START step when current)
+  - Gray = pending
 - Auto-expands current step and steps with sub-tasks
 - Click to expand/collapse step details
+
+**Initial Stage (Assigned Tasks):**
+- Sub-tasks added while at START step are "initial preparation tasks"
+- These appear in a separate "Assigned Tasks" section at the TOP of the workflow flow
+- Connected to the workflow steps with a connector line
+- Only shown while workflow is at START step (before "Start Workflow" is clicked)
+- Once workflow starts (moves past START), these tasks are hidden from the visualization
+
+**Visual Structure:**
+```
+Workflow Progress
+Standard Warranty Claim Process
+
+📋 Assigned Tasks                    2/2    ← Initial preparation tasks
+   Initial preparation tasks
+   │
+   └─ ✓ Task 1                       HIGH
+   │    Assignee Name
+   └─ ✓ Task 2                       HIGH
+        Assignee Name
+   │
+   ↓
+🟡 Claim Received        [Preparation]     ← START step (amber)
+   │
+   ↓
+⚪ Initial Inspection                       ← ACTION steps (gray = pending)
+   │
+   ↓
+⚪ Repair in Progress
+   │
+   ↓
+⚪ Quality Check
+   │
+   ↓
+⚪ Ready for Delivery                       ← END step
+```
 
 **Props:**
 ```typescript
@@ -704,6 +840,7 @@ interface WorkflowVisualizationProps {
   workflowId: number;
   workflowName: string;
   currentStepId: number | null;
+  refreshKey?: number; // Increment to trigger refresh
 }
 ```
 
@@ -801,15 +938,77 @@ Step completes, next step activates
 - **Disabled**: When there are incomplete sub-tasks (tooltip: "Complete all sub-tasks first")
 - **Enabled**: When all sub-tasks are complete or no sub-tasks exist
 
+#### START Step Display (Claim Detail Page)
+
+When a claim is at the START step (workflow assigned but not started), the claim detail page shows:
+
+**Card Header:** "Workflow Assigned" (instead of "Current Workflow Step")
+
+**Card Content:**
+```
+🔵 Ready to Start Processing
+   Claim received and workflow assigned.
+   Click "Start Workflow" to assign to first step.
+```
+
+**Button:** "Start Workflow" (instead of "Process Step")
+
+This makes it clear that:
+- The workflow is assigned but processing hasn't begun
+- Sub-tasks at this stage are initial preparation tasks
+- Clicking "Start Workflow" will move to the first ACTION step
+
 #### Change Workflow Lock
 
 The "Change Workflow" button is disabled after the workflow has started.
 
-**Logic:**
+**UI Logic:**
 - **Enabled**: When current step is START type
 - **Disabled**: When current step is past START (ACTION, DECISION, END, etc.)
 
 **Tooltip when disabled:** "Cannot change workflow after it has started"
+
+**API Protection** (`PUT /api/workflows/[id]/execute`):
+- Checks if `currentStepId` points to a START step
+- If changing workflow and current step is NOT START → returns 400 error
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "WORKFLOW_ALREADY_STARTED",
+    "message": "Cannot change workflow after it has started. Current step \"Initial Inspection\" is not the initial step."
+  }
+}
+```
+
+#### Sub-Task Migration on Workflow Change
+
+When changing workflows (while at START step), initial stage sub-tasks are automatically migrated to the new workflow's START step.
+
+**Behavior:**
+```
+Workflow A (START step ID: 10)
+├── Sub-task 1 (workflowStepId: 10)
+└── Sub-task 2 (workflowStepId: 10)
+        ↓
+    Change to Workflow B
+        ↓
+Workflow B (START step ID: 25)
+├── Sub-task 1 (workflowStepId: 25)  ← Migrated!
+└── Sub-task 2 (workflowStepId: 25)  ← Migrated!
+```
+
+**Why this is needed:**
+- Sub-tasks are linked to a specific `workflowStepId`
+- Without migration, sub-tasks would become "orphaned" when workflow changes
+- Initial preparation tasks should persist regardless of which workflow is assigned
+
+**Implementation:**
+- Done inside the transaction when assigning a new workflow
+- All sub-tasks linked to the old `currentStepId` are updated to the new START step ID
+- Logged to console: `[Workflow Change] Migrated X sub-tasks from step Y to new START step Z`
 
 ### 1.1. Sequential Sub-Task Workflow
 
@@ -1239,6 +1438,7 @@ import { Plus, Edit, Trash2, Eye, Search, Filter } from "lucide-react";
 | Step Status Tracking | Complete |
 | Dual View (Admin/Assignee) | Complete |
 | Optional Next User Selection | Complete |
+| Multi-Select User Assignment | Complete |
 | Workflow Visualization | Complete |
 | Process Step Dialog (with next step info) | Complete |
 | Sub-task Blocking (Process Step) | Complete |

@@ -616,11 +616,14 @@ model WorkflowStep {
   stepType                 StepType @default(ACTION)
   statusName               String   @db.VarChar(100)
   config                   Json?
-  requiredRoleId           Int?
+  requiredRoleId           Int?                          // Deprecated: Use allowedRoleIds instead
+  allowedRoleIds           Json?                          // Array of role IDs: [1,2,3] or null/[] = all users
+  allowedUserIds           Json?                          // Array of user IDs: [1,2,3] or null/[] = based on roles
+  assignmentType           String?  @db.VarChar(20)       // "ALL" | "ROLES" | "USERS" - default ALL
   requiredPermissions      Json?
   slaHours                 Int?
   slaWarningHours          Int?
-  autoAssignTo             Int?
+  autoAssignTo             Int?                          // Deprecated: Use allowedUserIds instead
   formFields               Json?
   isOptional               Boolean  @default(false)
   canSkip                  Boolean  @default(false)

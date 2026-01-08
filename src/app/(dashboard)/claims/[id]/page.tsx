@@ -27,6 +27,8 @@ import {
   Play,
   SkipForward,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Timer,
   AlertCircle,
   Settings,
@@ -267,13 +269,35 @@ export default function ClaimDetailPage({
     firstName: string | null;
     lastName: string | null;
     roleName: string;
+    workload?: number;
+    isPreSelected?: boolean;
   }>>([]);
   const [selectedNextUserId, setSelectedNextUserId] = useState<number | null>(null);
   const [loadingNextStepUsers, setLoadingNextStepUsers] = useState(false);
+  // Assignment configuration from workflow step
+  const [assignmentConfig, setAssignmentConfig] = useState<{
+    mode: "USERS" | "ROLES" | "ALL";
+    assignmentType?: "ALL" | "ROLES" | "USERS";
+    allowedRoles?: { id: number; name: string }[];
+    allowedUserIds?: number[];
+    requiredRole: { id: number; name: string } | null;
+    autoAssignUser: { id: number; firstName: string; lastName: string; roleName: string } | null;
+    requireSelection: boolean;
+    preSelectedUserId: number | null;
+  } | null>(null);
+  // First action step for START step (when no explicit transitions)
+  const [firstActionStep, setFirstActionStep] = useState<{
+    id: number;
+    name: string;
+    statusName: string;
+    stepType?: string;
+  } | null>(null);
   // Track sub-task completion status
   const [hasIncompleteSubTasks, setHasIncompleteSubTasks] = useState(false);
   // Refresh key for workflow visualization
   const [workflowRefreshKey, setWorkflowRefreshKey] = useState(0);
+  // Activity History collapsed state
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
 
   // Fetch claim, users, and workflows
   useEffect(() => {
@@ -524,28 +548,116 @@ export default function ClaimDetailPage({
 
   // Fetch eligible users for next step
   const fetchNextStepUsers = async () => {
-    if (!claim?.currentStep?.transitionsFrom || claim.currentStep.transitionsFrom.length === 0) {
-      return;
-    }
-    // Get the next step (first transition or selected transition)
-    const transition = selectedTransitionId
-      ? claim.currentStep.transitionsFrom.find((t) => t.id === selectedTransitionId)
-      : claim.currentStep.transitionsFrom[0];
+    const isStartStep = claim?.currentStep?.stepType === "START";
+    const hasTransitions = claim?.currentStep?.transitionsFrom && claim.currentStep.transitionsFrom.length > 0;
 
-    if (!transition || transition.toStep.stepType === "END") {
-      setDialogNextStepUsers([]);
-      return;
-    }
+    console.log("[fetchNextStepUsers] Starting...", { isStartStep, hasTransitions, workflowId: claim?.workflow?.id });
 
     setLoadingNextStepUsers(true);
+    setDialogNextStepUsers([]);
+    setFirstActionStep(null);
+    setAssignmentConfig(null);
+    setSelectedNextUserId(null);
+
     try {
-      const res = await fetch(`/api/workflows/steps/${transition.toStep.id}/eligible-users`);
-      const data = await res.json();
-      if (data.success) {
-        setDialogNextStepUsers(data.data || []);
+      let targetStepId: number | null = null;
+
+      // CASE 1: Has explicit transitions - use the transition's toStep
+      if (hasTransitions) {
+        const transition = selectedTransitionId
+          ? claim!.currentStep!.transitionsFrom.find((t) => t.id === selectedTransitionId)
+          : claim!.currentStep!.transitionsFrom[0];
+
+        console.log("[fetchNextStepUsers] Using transition:", transition);
+
+        if (!transition || transition.toStep.stepType === "END") {
+          setLoadingNextStepUsers(false);
+          return;
+        }
+
+        targetStepId = transition.toStep.id;
+        setFirstActionStep({
+          id: transition.toStep.id,
+          name: transition.toStep.name,
+          statusName: transition.toStep.statusName,
+        });
       }
-    } catch {
-      // Silently fail - user selection is optional
+      // CASE 2: START step - find first ACTION step
+      else if (isStartStep && claim?.workflow) {
+        console.log("[fetchNextStepUsers] Fetching workflow for START step...");
+        const workflowRes = await fetch(`/api/workflows/${claim.workflow.id}`);
+        const workflowData = await workflowRes.json();
+        console.log("[fetchNextStepUsers] Workflow data:", workflowData);
+
+        if (workflowData.success && workflowData.data?.steps) {
+          // Log all steps to see what we're getting
+          console.log("[fetchNextStepUsers] ALL steps:", workflowData.data.steps.map((s: { id: number; name: string; stepType: string; stepOrder: number }) => ({
+            id: s.id,
+            name: s.name,
+            stepType: s.stepType,
+            stepOrder: s.stepOrder,
+          })));
+
+          // Find all steps sorted by order
+          const sortedSteps = [...workflowData.data.steps].sort(
+            (a: { stepOrder: number }, b: { stepOrder: number }) => a.stepOrder - b.stepOrder
+          );
+
+          // Find the first step that is NOT the current START step
+          // This could be ACTION, DECISION, or even END
+          const nextSteps = sortedSteps.filter(
+            (s: { stepType: string; id: number }) =>
+              s.stepType !== "START" && s.id !== claim?.currentStep?.id
+          );
+
+          console.log("[fetchNextStepUsers] Next steps after START:", nextSteps);
+
+          if (nextSteps.length > 0) {
+            const firstStep = nextSteps[0];
+            targetStepId = firstStep.id;
+            console.log("[fetchNextStepUsers] First next step:", firstStep);
+            setFirstActionStep({
+              id: firstStep.id,
+              name: firstStep.name,
+              statusName: firstStep.statusName || (firstStep.stepType === "END" ? "Completed" : "In Progress"),
+              stepType: firstStep.stepType,
+            });
+          }
+        }
+      } else {
+        console.log("[fetchNextStepUsers] No START step or no workflow assigned");
+      }
+
+      // Fetch eligible users for the target step
+      console.log("[fetchNextStepUsers] Target step ID:", targetStepId);
+      if (targetStepId) {
+        const res = await fetch(`/api/workflows/steps/${targetStepId}/eligible-users`);
+        const data = await res.json();
+        console.log("[fetchNextStepUsers] Eligible users response:", data);
+
+        if (data.success && data.data) {
+          // Set assignment configuration
+          if (data.data.assignmentConfig) {
+            setAssignmentConfig(data.data.assignmentConfig);
+            // Pre-select user if configured
+            if (data.data.assignmentConfig.preSelectedUserId) {
+              setSelectedNextUserId(data.data.assignmentConfig.preSelectedUserId);
+            }
+          }
+
+          // Set eligible users
+          if (data.data.eligibleUsers) {
+            console.log("[fetchNextStepUsers] Setting users:", data.data.eligibleUsers.length);
+            setDialogNextStepUsers(data.data.eligibleUsers);
+          }
+        } else {
+          console.error("[fetchNextStepUsers] API returned error or no data:", data);
+        }
+      } else {
+        console.log("[fetchNextStepUsers] No target step ID found");
+      }
+    } catch (error) {
+      console.error("[fetchNextStepUsers] Error:", error);
     } finally {
       setLoadingNextStepUsers(false);
     }
@@ -1037,8 +1149,8 @@ export default function ClaimDetailPage({
                     <Button
                       onClick={() => openWorkflowDialog("complete")}
                       className="flex-1"
-                      disabled={claim.currentStep.stepType !== "START" && hasIncompleteSubTasks}
-                      title={claim.currentStep.stepType !== "START" && hasIncompleteSubTasks ? "Complete all sub-tasks first" : undefined}
+                      disabled={hasIncompleteSubTasks}
+                      title={hasIncompleteSubTasks ? "Complete all sub-tasks first" : undefined}
                     >
                       <Play className="mr-2 h-4 w-4" />
                       {claim.currentStep.stepType === "START" ? "Start Workflow" : "Process Step"}
@@ -1053,6 +1165,11 @@ export default function ClaimDetailPage({
                       </Button>
                     )}
                   </div>
+                  {hasIncompleteSubTasks && (
+                    <p className="text-xs text-muted-foreground mt-2 text-center">
+                      Complete all sub-tasks before {claim.currentStep.stepType === "START" ? "starting the workflow" : "processing this step"}
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1192,45 +1309,64 @@ export default function ClaimDetailPage({
 
           {/* History Timeline */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <History className="h-5 w-5" />
-                Activity History
-              </CardTitle>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <History className="h-5 w-5" />
+                  Activity History
+                  <Badge variant="secondary" className="text-xs">
+                    {claim.claimHistory.length}
+                  </Badge>
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setHistoryCollapsed(!historyCollapsed)}
+                  className="h-8 w-8 p-0"
+                >
+                  {historyCollapsed ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronUp className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {claim.claimHistory.map((entry, index) => (
-                  <div key={entry.id} className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="w-2 h-2 rounded-full bg-primary" />
-                      {index < claim.claimHistory.length - 1 && (
-                        <div className="w-0.5 h-full bg-border mt-2" />
-                      )}
-                    </div>
-                    <div className="flex-1 pb-4">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium">
-                          {entry.actionType.replace(/_/g, " ")}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {format(new Date(entry.createdAt), "dd MMM, HH:mm")}
+            {!historyCollapsed && (
+              <CardContent>
+                <div className="space-y-4">
+                  {claim.claimHistory.map((entry, index) => (
+                    <div key={entry.id} className="flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className="w-2 h-2 rounded-full bg-primary" />
+                        {index < claim.claimHistory.length - 1 && (
+                          <div className="w-0.5 h-full bg-border mt-2" />
+                        )}
+                      </div>
+                      <div className="flex-1 pb-4">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium">
+                            {entry.actionType.replace(/_/g, " ")}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {format(new Date(entry.createdAt), "dd MMM, HH:mm")}
+                          </p>
+                        </div>
+                        {entry.fromStatus && entry.toStatus && entry.fromStatus !== entry.toStatus && (
+                          <p className="text-sm text-muted-foreground">
+                            {entry.fromStatus} → {entry.toStatus}
+                          </p>
+                        )}
+                        {entry.notes && <p className="text-sm mt-1">{entry.notes}</p>}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          by {entry.performedUser.firstName} {entry.performedUser.lastName}
                         </p>
                       </div>
-                      {entry.fromStatus && entry.toStatus && entry.fromStatus !== entry.toStatus && (
-                        <p className="text-sm text-muted-foreground">
-                          {entry.fromStatus} → {entry.toStatus}
-                        </p>
-                      )}
-                      {entry.notes && <p className="text-sm mt-1">{entry.notes}</p>}
-                      <p className="text-xs text-muted-foreground mt-1">
-                        by {entry.performedUser.firstName} {entry.performedUser.lastName}
-                      </p>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
+                  ))}
+                </div>
+              </CardContent>
+            )}
           </Card>
         </div>
 
@@ -1487,6 +1623,11 @@ export default function ClaimDetailPage({
                   <SkipForward className="h-5 w-5" />
                   Skip Step
                 </>
+              ) : claim?.currentStep?.stepType === "START" ? (
+                <>
+                  <Play className="h-5 w-5 text-green-600" />
+                  Start Workflow
+                </>
               ) : (
                 <>
                   <Play className="h-5 w-5" />
@@ -1497,13 +1638,15 @@ export default function ClaimDetailPage({
             <DialogDescription>
               {workflowAction === "skip"
                 ? `Skip "${claim?.currentStep?.name}" and move to the next step`
-                : `Complete "${claim?.currentStep?.name}" and progress the workflow`}
+                : claim?.currentStep?.stepType === "START"
+                  ? "Assign a user to the first step and begin processing this claim"
+                  : `Complete "${claim?.currentStep?.name}" and progress the workflow`}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Step Info */}
-            {claim?.currentStep && (
+            {/* Step Info - Only show for non-START steps */}
+            {claim?.currentStep && claim.currentStep.stepType !== "START" && (
               <div className="p-3 bg-muted rounded-lg">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1575,60 +1718,150 @@ export default function ClaimDetailPage({
               )}
 
             {/* Next Step Info & User Assignment */}
-            {claim?.currentStep?.transitionsFrom && claim.currentStep.transitionsFrom.length > 0 && (() => {
-              const nextTransition = selectedTransitionId
-                ? claim.currentStep!.transitionsFrom.find((t) => t.id === selectedTransitionId)
-                : claim.currentStep!.transitionsFrom[0];
+            {(() => {
+              // Check if we have transitions OR a fallback firstActionStep (for START step)
+              const hasTransitions = claim?.currentStep?.transitionsFrom && claim.currentStep.transitionsFrom.length > 0;
+              const isStartStep = claim?.currentStep?.stepType === "START";
 
-              if (!nextTransition) return null;
-              const isEndStep = nextTransition.toStep.stepType === "END";
+              // Get next step info from transition or fallback
+              let nextStepInfo: { name: string; statusName: string; isEndStep: boolean } | null = null;
+
+              if (hasTransitions) {
+                const nextTransition = selectedTransitionId
+                  ? claim!.currentStep!.transitionsFrom.find((t) => t.id === selectedTransitionId)
+                  : claim!.currentStep!.transitionsFrom[0];
+
+                if (nextTransition) {
+                  nextStepInfo = {
+                    name: nextTransition.toStep.name,
+                    statusName: nextTransition.toStep.statusName,
+                    isEndStep: nextTransition.toStep.stepType === "END",
+                  };
+                }
+              } else if (isStartStep && firstActionStep) {
+                // Use fallback firstActionStep for START step
+                nextStepInfo = {
+                  name: firstActionStep.name,
+                  statusName: firstActionStep.statusName,
+                  isEndStep: firstActionStep.stepType === "END",
+                };
+              }
+
+              // For START step, always show the user assignment section (even while loading)
+              if (!nextStepInfo && !isStartStep) return null;
 
               return (
                 <div className="space-y-3">
                   <Separator />
-                  {/* Next Step Info */}
-                  <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <div className="flex items-center gap-2 mb-1">
-                      <ChevronRight className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm font-medium text-blue-700 dark:text-blue-400">Next Step</span>
+                  {/* Next Step Info - Different styling for START step */}
+                  {nextStepInfo ? (
+                    <div className={`p-3 rounded-lg border ${
+                      isStartStep
+                        ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
+                        : "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+                    }`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <ChevronRight className={`h-4 w-4 ${isStartStep ? "text-green-600" : "text-blue-600"}`} />
+                        <span className={`text-sm font-medium ${
+                          isStartStep ? "text-green-700 dark:text-green-400" : "text-blue-700 dark:text-blue-400"
+                        }`}>
+                          {isStartStep ? "First Step" : "Next Step"}
+                        </span>
+                      </div>
+                      <p className="font-medium">{nextStepInfo.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Status: {nextStepInfo.statusName}
+                      </p>
                     </div>
-                    <p className="font-medium">{nextTransition.toStep.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Status: {nextTransition.toStep.statusName}
-                    </p>
-                  </div>
+                  ) : isStartStep && loadingNextStepUsers ? (
+                    <div className="p-3 rounded-lg border bg-muted animate-pulse">
+                      <div className="h-4 bg-muted-foreground/20 rounded w-24 mb-2"></div>
+                      <div className="h-5 bg-muted-foreground/20 rounded w-40"></div>
+                    </div>
+                  ) : null}
 
-                  {/* Optional User Assignment (not for END steps) */}
-                  {!isEndStep && (
+                  {/* Show message when next step is END */}
+                  {nextStepInfo?.isEndStep && (
+                    <div className="p-3 rounded-lg border bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800">
+                      <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                        This workflow has no processing steps. Clicking &quot;Start Workflow&quot; will immediately mark the claim as completed.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* User Assignment - REQUIRED for START step, Optional for others */}
+                  {(!nextStepInfo?.isEndStep) && (
                     <div className="space-y-2">
-                      <Label>Assign User for Next Step (Optional)</Label>
+                      <div className="flex items-center justify-between">
+                        <Label>
+                          {isStartStep ? (
+                            <>Assign User to First Step <span className="text-red-500">*</span></>
+                          ) : (
+                            "Assign User for Next Step (Optional)"
+                          )}
+                        </Label>
+                        {/* Show assignment mode badge */}
+                        {assignmentConfig && (
+                          <Badge variant="secondary" className="text-xs">
+                            {assignmentConfig.mode === "USERS" && `${assignmentConfig.allowedUserIds?.length || 0} Specific Users`}
+                            {assignmentConfig.mode === "ROLES" && (
+                              assignmentConfig.allowedRoles && assignmentConfig.allowedRoles.length > 1
+                                ? `${assignmentConfig.allowedRoles.length} Roles`
+                                : `Role: ${assignmentConfig.allowedRoles?.[0]?.name || assignmentConfig.requiredRole?.name}`
+                            )}
+                            {assignmentConfig.mode === "ALL" && "All Users"}
+                          </Badge>
+                        )}
+                      </div>
+
                       {loadingNextStepUsers ? (
                         <div className="text-sm text-muted-foreground">Loading eligible users...</div>
                       ) : dialogNextStepUsers.length > 0 ? (
                         <Select
-                          value={selectedNextUserId?.toString() || "none"}
-                          onValueChange={(val) => setSelectedNextUserId(val === "none" ? null : parseInt(val))}
+                          value={selectedNextUserId?.toString() || (isStartStep ? "" : "none")}
+                          onValueChange={(val) => setSelectedNextUserId(val === "none" || val === "" ? null : parseInt(val))}
                         >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select user (optional)" />
+                          <SelectTrigger className={isStartStep && !selectedNextUserId ? "border-red-300" : ""}>
+                            <SelectValue placeholder={isStartStep ? "Select user to assign..." : "Select user (optional)"} />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">
-                              <span className="text-muted-foreground">No assignment (decide later)</span>
-                            </SelectItem>
+                            {!isStartStep && (
+                              <SelectItem value="none">
+                                <span className="text-muted-foreground">No assignment (decide later)</span>
+                              </SelectItem>
+                            )}
                             {dialogNextStepUsers.map((user) => (
                               <SelectItem key={user.id} value={user.id.toString()}>
-                                <div className="flex items-center gap-2">
-                                  <UserPlus className="h-4 w-4" />
-                                  <span>{user.firstName} {user.lastName}</span>
+                                <div className="flex items-center gap-2 w-full">
+                                  <UserPlus className="h-4 w-4 flex-shrink-0" />
+                                  <span className="flex-1">{user.firstName} {user.lastName}</span>
                                   <Badge variant="outline" className="text-xs">{user.roleName}</Badge>
+                                  {user.workload !== undefined && (
+                                    <span className="text-xs text-muted-foreground">
+                                      ({user.workload} tasks)
+                                    </span>
+                                  )}
+                                  {user.isPreSelected && (
+                                    <Badge className="text-xs bg-green-100 text-green-700">Default</Badge>
+                                  )}
                                 </div>
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       ) : (
-                        <p className="text-sm text-muted-foreground">No eligible users found for next step</p>
+                        <p className="text-sm text-muted-foreground">No eligible users found for {isStartStep ? "first" : "next"} step</p>
+                      )}
+
+                      {/* Show info about pre-selected user */}
+                      {assignmentConfig?.autoAssignUser && (
+                        <p className="text-xs text-muted-foreground">
+                          Default assignee: {assignmentConfig.autoAssignUser.firstName} {assignmentConfig.autoAssignUser.lastName} ({assignmentConfig.autoAssignUser.roleName})
+                        </p>
+                      )}
+
+                      {isStartStep && !selectedNextUserId && !loadingNextStepUsers && dialogNextStepUsers.length > 0 && (
+                        <p className="text-xs text-red-500">Please select a user to start the workflow</p>
                       )}
                     </div>
                   )}
@@ -1654,8 +1887,9 @@ export default function ClaimDetailPage({
             </Button>
             <Button
               onClick={() => handleWorkflowStep()}
-              disabled={submitting}
+              disabled={submitting || (claim?.currentStep?.stepType === "START" && !selectedNextUserId && firstActionStep?.stepType !== "END")}
               variant={workflowAction === "skip" ? "secondary" : "default"}
+              className={claim?.currentStep?.stepType === "START" ? "bg-green-600 hover:bg-green-700" : ""}
             >
               {submitting ? (
                 "Processing..."
@@ -1663,6 +1897,11 @@ export default function ClaimDetailPage({
                 <>
                   <SkipForward className="mr-2 h-4 w-4" />
                   Skip Step
+                </>
+              ) : claim?.currentStep?.stepType === "START" ? (
+                <>
+                  <Play className="mr-2 h-4 w-4" />
+                  {firstActionStep?.stepType === "END" ? "Complete Workflow" : "Start Workflow"}
                 </>
               ) : (
                 <>

@@ -233,7 +233,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
       for (const step of steps) {
         if (step.id) {
-          // Update existing step
+          // Update existing step - use relation syntax for foreign keys
           await tx.workflowStep.update({
             where: { id: step.id },
             data: {
@@ -243,11 +243,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
               stepType: step.stepType,
               statusName: step.statusName,
               config: step.config || null,
-              requiredRoleId: step.requiredRoleId || null,
+              requiredRole: step.requiredRoleId
+                ? { connect: { id: step.requiredRoleId } }
+                : { disconnect: true },
               requiredPermissions: step.requiredPermissions || null,
               slaHours: step.slaHours || null,
               slaWarningHours: step.slaWarningHours || null,
-              autoAssignTo: step.autoAssignTo || null,
+              autoAssignUser: step.autoAssignTo
+                ? { connect: { id: step.autoAssignTo } }
+                : { disconnect: true },
+              assignmentType: step.assignmentType || "ALL",
+              allowedRoleIds: step.allowedRoleIds?.length > 0 ? step.allowedRoleIds : null,
+              allowedUserIds: step.allowedUserIds?.length > 0 ? step.allowedUserIds : null,
               formFields: step.formFields || null,
               isOptional: step.isOptional || false,
               canSkip: step.canSkip || false,
@@ -257,21 +264,28 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             stepIdMap[step.tempId] = step.id;
           }
         } else {
-          // Create new step
+          // Create new step - use relation syntax for foreign keys
           const newStep = await tx.workflowStep.create({
             data: {
-              workflowId,
+              workflow: { connect: { id: workflowId } },
               name: step.name,
               description: step.description || null,
               stepOrder: step.stepOrder,
               stepType: step.stepType,
               statusName: step.statusName,
               config: step.config || null,
-              requiredRoleId: step.requiredRoleId || null,
+              requiredRole: step.requiredRoleId
+                ? { connect: { id: step.requiredRoleId } }
+                : undefined,
               requiredPermissions: step.requiredPermissions || null,
               slaHours: step.slaHours || null,
               slaWarningHours: step.slaWarningHours || null,
-              autoAssignTo: step.autoAssignTo || null,
+              autoAssignUser: step.autoAssignTo
+                ? { connect: { id: step.autoAssignTo } }
+                : undefined,
+              assignmentType: step.assignmentType || "ALL",
+              allowedRoleIds: step.allowedRoleIds?.length > 0 ? step.allowedRoleIds : null,
+              allowedUserIds: step.allowedUserIds?.length > 0 ? step.allowedUserIds : null,
               formFields: step.formFields || null,
               isOptional: step.isOptional || false,
               canSkip: step.canSkip || false,

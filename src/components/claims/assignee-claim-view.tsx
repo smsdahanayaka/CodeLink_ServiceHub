@@ -165,6 +165,9 @@ export function AssigneeClaimView({ claim, onRefresh }: AssigneeClaimViewProps) 
   // History collapse state
   const [historyOpen, setHistoryOpen] = useState(false);
 
+  // Track incomplete sub-tasks for blocking step completion
+  const [hasIncompleteSubTasks, setHasIncompleteSubTasks] = useState(false);
+
   // Calculate SLA status
   const getSlaStatus = () => {
     if (!claim?.currentStep?.slaHours || !claim?.currentStepStartedAt) {
@@ -407,7 +410,7 @@ export function AssigneeClaimView({ claim, onRefresh }: AssigneeClaimViewProps) 
                     </div>
                   )}
 
-                  {/* Sub-Tasks - Assignee mode */}
+                  {/* Sub-Tasks - Assignee mode (can add sub-tasks for their step) */}
                   <SubTaskList
                     claimId={claim.id}
                     workflowStepId={claim.currentStep.id}
@@ -418,20 +421,28 @@ export function AssigneeClaimView({ claim, onRefresh }: AssigneeClaimViewProps) 
                     isStepAssignee={claim._userContext.isStepAssignee}
                     showAllForManagers={false}
                     assigneeMode={true}
-                    hideAddButton={true}
+                    hideAddButton={false}
                     onStepComplete={() => setWorkflowDialogOpen(true)}
+                    onSubTaskStatusChange={(hasIncomplete) => setHasIncompleteSubTasks(hasIncomplete)}
                   />
 
-                  {/* Process Step Button */}
+                  {/* Process Step Button - Disabled if sub-tasks incomplete */}
                   {claim._userContext.canProcessStep && (
                     <div className="pt-2 border-t">
                       <Button
                         onClick={() => setWorkflowDialogOpen(true)}
                         className="w-full"
+                        disabled={hasIncompleteSubTasks}
+                        title={hasIncompleteSubTasks ? "Complete all sub-tasks first" : undefined}
                       >
                         <Play className="mr-2 h-4 w-4" />
                         Complete Step & Select Next User
                       </Button>
+                      {hasIncompleteSubTasks && (
+                        <p className="text-xs text-muted-foreground mt-1 text-center">
+                          Complete all sub-tasks before proceeding
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

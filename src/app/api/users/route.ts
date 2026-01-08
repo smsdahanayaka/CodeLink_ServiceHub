@@ -24,8 +24,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const { page, limit, search, sortBy, sortOrder, skip } = parsePaginationParams(searchParams);
 
+    // Get filter params
+    const status = searchParams.get("status");
+    const roleId = searchParams.get("roleId");
+
     // Build where clause
-    const where = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {
       tenantId: user.tenantId,
       ...(search && {
         OR: [
@@ -34,6 +39,8 @@ export async function GET(request: NextRequest) {
           { email: { contains: search } },
         ],
       }),
+      ...(status && { status }),
+      ...(roleId && { roleId: parseInt(roleId) }),
     };
 
     // Get total count

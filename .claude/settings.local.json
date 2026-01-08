@@ -51,7 +51,10 @@
       "Bash(timeout /t 10)",
       "Bash(cmd /c \"if exist C:\\\\Hype-Projects\\\\CodeLink_ServiceHub\\\\.next rmdir /s /q C:\\\\Hype-Projects\\\\CodeLink_ServiceHub\\\\.next\")",
       "Bash(cmd /c \"tasklist /FI \"IMAGENAME eq node.exe\"\")",
-      "Bash(cmd /c \"rmdir /s /q .next\")"
+      "Bash(cmd /c \"rmdir /s /q .next\")",
+      "Bash(cmd /c \"if exist C:\\\\Hype-Projects\\\\CodeLink_ServiceHub\\\\node_modules\\\\.prisma rmdir /s /q C:\\\\Hype-Projects\\\\CodeLink_ServiceHub\\\\node_modules\\\\.prisma\")",
+      "Bash(cmd /c \"tasklist /FI \"\"IMAGENAME eq node.exe\"\"\")",
+      "Bash(cmd /c \"del /f /q C:\\\\Hype-Projects\\\\CodeLink_ServiceHub\\\\node_modules\\\\.prisma\\\\client\\\\*.tmp* 2>nul\")"
     ]
   }
 }

@@ -223,6 +223,10 @@ export function WorkflowVisualization({
     );
   }
 
+  // Get initial stage sub-tasks (from START step)
+  const startStep = steps.find((s) => s.stepType === "START");
+  const initialSubTasks = startStep?.subTasks || [];
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -237,14 +241,116 @@ export function WorkflowVisualization({
       <CardContent className="pt-0">
         {/* Workflow Steps */}
         <div className="space-y-1">
-          {steps.map((step, index) => {
+          {/* Initial Stage - Assigned Tasks (always shown if START step has sub-tasks) */}
+          {initialSubTasks.length > 0 && (
+            <div className="relative">
+              {/* Connector line to next step */}
+              <div className={cn(
+                "absolute left-[11px] top-8 w-0.5 h-[calc(100%-16px)]",
+                startStep?.isCompleted ? "bg-green-300" : "bg-amber-300"
+              )} />
+
+              <Collapsible defaultOpen={startStep?.isCurrent}>
+                <CollapsibleTrigger
+                  className={cn(
+                    "w-full flex items-start gap-3 p-2 rounded-lg transition-colors text-left cursor-pointer",
+                    startStep?.isCompleted
+                      ? "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-950/50"
+                      : "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-950/50"
+                  )}
+                >
+                  <div className="shrink-0 mt-0.5">
+                    {startStep?.isCompleted ? (
+                      <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    ) : (
+                      <ListTodo className="h-5 w-5 text-amber-500" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={cn(
+                        "font-medium text-sm",
+                        startStep?.isCompleted && "text-muted-foreground"
+                      )}>Initial Tasks (Start Step)</span>
+                      <Badge variant="secondary" className={cn(
+                        "text-xs",
+                        startStep?.isCompleted ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                      )}>
+                        {initialSubTasks.filter((t) => t.status === "COMPLETED").length}/{initialSubTasks.length}
+                      </Badge>
+                      {startStep?.isCompleted && (
+                        <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">Completed</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+                      <span>Initial preparation tasks</span>
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="ml-8 mt-1 space-y-1 pb-2">
+                    {initialSubTasks.map((subTask) => (
+                      <div
+                        key={subTask.id}
+                        className={cn(
+                          "flex items-start gap-2 p-2 rounded border text-sm",
+                          subTask.status === "COMPLETED" && "bg-green-50 border-green-200",
+                          subTask.status === "IN_PROGRESS" && "bg-blue-50 border-blue-200",
+                          subTask.status === "CANCELLED" && "opacity-60"
+                        )}
+                      >
+                        {getSubTaskStatusIcon(subTask.status)}
+                        <div className="flex-1 min-w-0">
+                          <span
+                            className={cn(
+                              "text-sm",
+                              subTask.status === "COMPLETED" && "line-through text-muted-foreground"
+                            )}
+                          >
+                            {subTask.title}
+                          </span>
+                          {subTask.assignedUser && (
+                            <div className="flex items-center gap-1 mt-0.5 text-xs text-muted-foreground">
+                              <User className="h-3 w-3" />
+                              <span>
+                                {subTask.assignedUser.firstName} {subTask.assignedUser.lastName}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <Badge
+                          variant="secondary"
+                          className={cn(
+                            "text-xs shrink-0",
+                            subTask.priority === "HIGH" && "bg-red-100 text-red-700",
+                            subTask.priority === "MEDIUM" && "bg-blue-100 text-blue-700",
+                            subTask.priority === "LOW" && "bg-gray-100 text-gray-700"
+                          )}
+                        >
+                          {subTask.priority}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+          )}
+
+          {/* Filter: If START step has sub-tasks, it's shown in "Initial Tasks" section above */}
+          {steps.filter((s) => !(s.stepType === "START" && initialSubTasks.length > 0)).map((step, index, filteredSteps) => {
             const isExpanded = expandedSteps.has(step.id);
-            const hasContent = step.subTasks.length > 0 || step.assignment?.assignedUser;
+            // For START step without sub-tasks, show normally
+            const stepSubTasks = step.subTasks;
+            const hasContent = stepSubTasks.length > 0 || step.assignment?.assignedUser;
 
             return (
               <div key={step.id} className="relative">
                 {/* Connector line */}
-                {index < steps.length - 1 && (
+                {index < filteredSteps.length - 1 && (
                   <div
                     className={cn(
                       "absolute left-[11px] top-8 w-0.5 h-[calc(100%-16px)]",
@@ -279,8 +385,7 @@ export function WorkflowVisualization({
                             step.isCompleted && !step.isCurrent && "text-muted-foreground"
                           )}
                         >
-                          {/* Show "Awaiting Start" for START step instead of step name */}
-                          {step.stepType === "START" && step.isCurrent ? "Awaiting Start" : step.name}
+                          {step.name}
                         </span>
                         {step.assignment?.stepStatus && getStepStatusBadge(step.assignment.stepStatus)}
                         {/* Show different badge for START step */}
@@ -307,12 +412,12 @@ export function WorkflowVisualization({
                         </div>
                       )}
 
-                      {/* Sub-task count indicator */}
-                      {step.subTasks.length > 0 && (
+                      {/* Sub-task count indicator - not shown for START step */}
+                      {stepSubTasks.length > 0 && (
                         <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                           <ListTodo className="h-3 w-3" />
                           <span>
-                            {step.subTasks.filter((t) => t.status === "COMPLETED").length}/{step.subTasks.length} {step.stepType === "START" ? "prep tasks" : "tasks"}
+                            {stepSubTasks.filter((t) => t.status === "COMPLETED").length}/{stepSubTasks.length} tasks
                           </span>
                         </div>
                       )}
@@ -331,10 +436,10 @@ export function WorkflowVisualization({
                   </CollapsibleTrigger>
 
                   <CollapsibleContent>
-                    {/* Sub-tasks list */}
-                    {step.subTasks.length > 0 && (
+                    {/* Sub-tasks list - not shown for START step */}
+                    {stepSubTasks.length > 0 && (
                       <div className="ml-8 mt-1 space-y-1 pb-2">
-                        {step.subTasks.map((subTask) => (
+                        {stepSubTasks.map((subTask) => (
                           <div
                             key={subTask.id}
                             className={cn(

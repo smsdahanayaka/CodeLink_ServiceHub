@@ -159,7 +159,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check permission for this step
-    if (currentStep.requiredRoleId && user.roleId !== currentStep.requiredRoleId) {
+    // Skip role check for START steps - anyone with claims.process can start a workflow
+    // Role restrictions on START step apply to WHO gets assigned to the next step, not who can start
+    const isStartStep = currentStep.stepType === "START";
+    const canProcessClaims = user.permissions.includes("claims.process") || user.permissions.includes("claims.assign");
+
+    if (!isStartStep && currentStep.requiredRoleId && user.roleId !== currentStep.requiredRoleId) {
       // Check if user has required permissions
       const requiredPermissions = currentStep.requiredPermissions as string[] | null;
       if (requiredPermissions && requiredPermissions.length > 0) {
@@ -170,6 +175,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       } else {
         return errorResponse("You don't have the required role for this step", "FORBIDDEN", 403);
       }
+    }
+
+    // For START steps, require claims.process or claims.assign permission
+    if (isStartStep && !canProcessClaims) {
+      return errorResponse("You don't have permission to start workflows", "FORBIDDEN", 403);
     }
 
     // Validate form fields if required
@@ -270,6 +280,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               })),
             }
           );
+        }
+      }
+
+      // Fallback for START step: if no transitions defined, find first ACTION step
+      if (!nextStep && currentStep.stepType === "START") {
+        const firstActionStep = await prisma.workflowStep.findFirst({
+          where: {
+            workflowId,
+            stepType: { in: ["ACTION", "DECISION"] },
+          },
+          orderBy: { stepOrder: "asc" },
+        });
+
+        if (firstActionStep) {
+          nextStep = firstActionStep;
+          console.log(`[START Step Fallback] No transitions defined, using first ACTION step: ${firstActionStep.name}`);
         }
       }
     }
@@ -581,23 +607,34 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (isWorkflowChange && claim.currentStepId) {
       const currentStep = await prisma.workflowStep.findUnique({
         where: { id: claim.currentStepId },
-        select: { stepType: true, name: true },
+        select: { stepType: true, name: true, workflowId: true },
       });
 
+      console.log("[Workflow Change Check]", {
+        claimId: claim.id,
+        currentStepId: claim.currentStepId,
+        currentStepType: currentStep?.stepType,
+        currentStepName: currentStep?.name,
+        fromWorkflowId: claim.workflowId,
+        toWorkflowId: workflowId,
+      });
+
+      // Only block if we can confirm the current step is NOT a START step
+      // If step not found (deleted workflow), allow the change
       if (currentStep && currentStep.stepType !== "START") {
         return errorResponse(
-          "Cannot change workflow after it has started. The claim has already progressed beyond the initial step.",
+          `Cannot change workflow after it has started. Current step "${currentStep.name}" is not the initial step.`,
           "WORKFLOW_ALREADY_STARTED",
           400
         );
       }
     }
 
-    // Get the first step (START type)
+    // Get the first step (START type) from the NEW workflow
     const startStep = workflow.steps[0];
     if (!startStep) {
       return errorResponse(
-        "Workflow has no start step. Please add a START step first.",
+        `Workflow "${workflow.name}" has no START step. Please add a START step to this workflow first.`,
         "NO_START_STEP",
         400
       );
@@ -605,6 +642,33 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     // Assign workflow and set first step
     const updatedClaim = await prisma.$transaction(async (tx) => {
+      // If changing workflow, migrate initial stage sub-tasks to the new START step
+      if (isWorkflowChange && claim.currentStepId) {
+        // Get the old START step's sub-tasks
+        const oldSubTasks = await tx.claimSubTask.findMany({
+          where: {
+            claimId: claim.id,
+            workflowStepId: claim.currentStepId,
+          },
+          select: { id: true },
+        });
+
+        if (oldSubTasks.length > 0) {
+          // Migrate sub-tasks to the new START step
+          await tx.claimSubTask.updateMany({
+            where: {
+              claimId: claim.id,
+              workflowStepId: claim.currentStepId,
+            },
+            data: {
+              workflowStepId: startStep.id,
+            },
+          });
+
+          console.log(`[Workflow Change] Migrated ${oldSubTasks.length} sub-tasks from step ${claim.currentStepId} to new START step ${startStep.id}`);
+        }
+      }
+
       // Record history
       // Keep status as "new" when at START step
       const newStatus = startStep.stepType === "START" ? "new" : startStep.statusName;

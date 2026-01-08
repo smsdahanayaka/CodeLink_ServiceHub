@@ -2,6 +2,13 @@
 // Eligible Users for Workflow Step API
 // GET - Get users eligible to be assigned to a step
 // ===========================================
+//
+// Assignment Logic (Industry Standard):
+// 1. assignmentType = "USERS" → Show only users in allowedUserIds
+// 2. assignmentType = "ROLES" → Show only users with roles in allowedRoleIds
+// 3. assignmentType = "ALL" (or not set) → Show all active users
+// 4. autoAssignTo pre-selects a specific user (but still shows all eligible)
+// ===========================================
 
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -25,12 +32,22 @@ export async function GET(
       return errorResponse("Invalid step ID", "INVALID_ID", 400);
     }
 
-    // Get the workflow step
+    // Get the workflow step with all assignment configuration
     const step = await prisma.workflowStep.findFirst({
       where: { id: workflowStepId },
       include: {
         workflow: { select: { tenantId: true } },
         requiredRole: { select: { id: true, name: true } },
+        autoAssignUser: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            status: true,
+            role: { select: { id: true, name: true } }
+          }
+        },
       },
     });
 
@@ -43,20 +60,72 @@ export async function GET(
       return errorResponse("Access denied", "FORBIDDEN", 403);
     }
 
-    // Build user query based on step requirements
-    const userWhere: Record<string, unknown> = {
+    // Parse JSON arrays - use type assertion for the new fields
+    const allowedRoleIds = (step.allowedRoleIds as number[] | null) || null;
+    const allowedUserIds = (step.allowedUserIds as number[] | null) || null;
+    const assignmentType = ((step.assignmentType as string) || "ALL") as "ALL" | "ROLES" | "USERS";
+
+    console.log("[eligible-users] Step config:", {
+      stepId: step.id,
+      stepName: step.name,
+      assignmentType,
+      allowedRoleIds,
+      allowedUserIds,
+      requiredRoleId: step.requiredRoleId,
+      autoAssignTo: step.autoAssignTo,
+      tenantId: user.tenantId,
+    });
+
+    // Build where clause based on assignment configuration
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereClause: any = {
       tenantId: user.tenantId,
       status: "ACTIVE",
     };
 
-    // If step requires a specific role, filter by that role
-    if (step.requiredRoleId) {
-      userWhere.roleId = step.requiredRoleId;
+    // Determine assignment mode and build filter
+    let assignmentMode: "USERS" | "ROLES" | "ALL" = "ALL";
+    let preSelectedUserId: number | null = null;
+    let allowedRoles: { id: number; name: string }[] = [];
+
+    // Check assignment type (new system)
+    if (assignmentType === "USERS" && allowedUserIds && allowedUserIds.length > 0) {
+      // Specific users selected
+      assignmentMode = "USERS";
+      whereClause.id = { in: allowedUserIds };
+    } else if (assignmentType === "ROLES" && allowedRoleIds && allowedRoleIds.length > 0) {
+      // Specific roles selected
+      assignmentMode = "ROLES";
+      whereClause.roleId = { in: allowedRoleIds };
+
+      // Fetch role names for display
+      const roles = await prisma.role.findMany({
+        where: { id: { in: allowedRoleIds } },
+        select: { id: true, name: true },
+      });
+      allowedRoles = roles;
+    } else if (step.requiredRoleId) {
+      // Legacy: single role assignment (backward compatibility)
+      assignmentMode = "ROLES";
+      whereClause.roleId = step.requiredRoleId;
+      if (step.requiredRole) {
+        allowedRoles = [step.requiredRole];
+      }
+    } else {
+      // Default: All active users
+      assignmentMode = "ALL";
     }
 
-    // Get eligible users with their current workload (assigned claims count)
+    // Set pre-selected user if autoAssignTo is set
+    if (step.autoAssignTo && step.autoAssignUser) {
+      preSelectedUserId = step.autoAssignTo;
+    }
+
+    console.log("[eligible-users] Where clause:", whereClause, "Mode:", assignmentMode);
+
+    // Fetch eligible users
     const eligibleUsers = await prisma.user.findMany({
-      where: userWhere,
+      where: whereClause,
       select: {
         id: true,
         firstName: true,
@@ -79,50 +148,48 @@ export async function GET(
       ],
     });
 
-    // Check if step has required permissions
-    const requiredPermissions = step.requiredPermissions as string[] | null;
-
-    // Filter users by permissions if required
-    let filteredUsers = eligibleUsers;
-    if (requiredPermissions && requiredPermissions.length > 0) {
-      // Get roles with those permissions
-      const rolesWithPermissions = await prisma.role.findMany({
-        where: { tenantId: user.tenantId },
-        select: { id: true, permissions: true },
-      });
-
-      const validRoleIds = rolesWithPermissions
-        .filter((role) => {
-          const rolePerms = role.permissions as string[];
-          return requiredPermissions.every((perm) => rolePerms.includes(perm));
-        })
-        .map((r) => r.id);
-
-      filteredUsers = eligibleUsers.filter((u) =>
-        validRoleIds.includes(u.role.id)
-      );
-    }
+    console.log("[eligible-users] Found users:", eligibleUsers.length);
 
     // Format response
-    const formattedUsers = filteredUsers.map((u) => ({
+    const formattedUsers = eligibleUsers.map((u) => ({
       id: u.id,
       firstName: u.firstName,
       lastName: u.lastName,
       fullName: `${u.firstName || ""} ${u.lastName || ""}`.trim(),
       email: u.email,
       role: u.role,
+      roleName: u.role?.name || "Unknown",
       workload: u._count.assignedClaims,
+      isPreSelected: u.id === preSelectedUserId,
     }));
 
-    // Sort by workload (least busy first)
-    formattedUsers.sort((a, b) => a.workload - b.workload);
+    // Sort: pre-selected user first, then by workload (least busy first)
+    formattedUsers.sort((a, b) => {
+      if (a.isPreSelected && !b.isPreSelected) return -1;
+      if (!a.isPreSelected && b.isPreSelected) return 1;
+      return a.workload - b.workload;
+    });
 
     return successResponse({
       step: {
         id: step.id,
         name: step.name,
-        requiredRole: step.requiredRole,
-        requiredPermissions: requiredPermissions || [],
+        stepType: step.stepType,
+      },
+      assignmentConfig: {
+        mode: assignmentMode,
+        assignmentType: assignmentType,
+        allowedRoles: allowedRoles,
+        allowedUserIds: allowedUserIds || [],
+        requiredRole: step.requiredRole, // Legacy
+        autoAssignUser: step.autoAssignUser ? {
+          id: step.autoAssignUser.id,
+          firstName: step.autoAssignUser.firstName,
+          lastName: step.autoAssignUser.lastName,
+          roleName: step.autoAssignUser.role?.name || "Unknown",
+        } : null,
+        requireSelection: step.requireNextUserSelection,
+        preSelectedUserId,
       },
       eligibleUsers: formattedUsers,
       totalEligible: formattedUsers.length,
